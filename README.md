@@ -18,41 +18,47 @@ Results are aggregate neighbourhood affinities, never claims about individuals.
 ## Status
 
 Day 0 skeleton. Qloo data is **sample data** (`QLOO_MODE=sample`) until the event API key arrives;
-the UI labels it as such.
-
-## Run locally
-
-Requires Node 22.19+.
-
-```sh
-npm install
-npm run build
-npm start            # http://localhost:3000
-```
-
-For development with hot reload: `npm run dev` (API on :3000, Vite on :5173).
-
-## Configuration
-
-| Variable | Purpose |
-| --- | --- |
-| `QLOO_MODE` | `sample` (default) or `live` |
-| `QLOO_API_KEY` | Event-issued Qloo key. Server-side only; used by the `qloo` CLI from `@qloo/qloo-harness`. |
-| `ANTHROPIC_API_KEY` | Optional. Lets Claude write the suggestions; without it the app uses templates. |
-
-Secrets go in the host's environment settings, never in the repo or the browser.
+the UI labels it as such. Suggestions are template-written; Claude on Amazon Bedrock takes over on Day 1.
 
 ## Architecture
 
-- `server/qloo/`: the only place that touches Qloo. `sample.ts` returns hand-written sample data;
-  `live.ts` runs `qloo exec <workflow>` (`recommend` with `signal_location`, `compare_audiences`, …).
-  Results are cached in memory.
-- `server/agent.ts`: turns area taste signals and the menu into evidence-linked suggestions.
-- `web/`: Vite + React front end, served by the same Express server.
+Serverless on AWS with [Amplify Gen 2](https://docs.amplify.aws/react/):
 
-## Deploy
+```
+Browser (React) ──startAnalysis mutation──► AppSync ──► start-analysis Lambda ──► SQS
+      ▲                                                                            │
+      └──── onUpdate subscription (progress + result) ◄── AppSync ◄── analyze-worker Lambda
+                                                                       ├─ Qloo (@qloo/qloo-harness, in-process)
+                                                                       ├─ Bedrock (Claude)
+                                                                       └─ DynamoDB cache of Qloo responses
+```
 
-`render.yaml` defines a Render web service. Set `QLOO_API_KEY` and `ANTHROPIC_API_KEY` in the dashboard.
+- **Cognito**: email sign-in for café owners, plus guest access so anyone can try it without signing up.
+- **AppSync + DynamoDB**: `AnalysisJob` records; the worker updates them through AppSync, so the UI streams progress.
+- **SQS**: agent runs take longer than an AppSync resolver may (~30 s), so jobs are queued (with a dead-letter queue).
+- `core/qloo/`: the only code that touches Qloo. `sample.ts` returns hand-written sample data; `live.ts` runs harness
+  workflows (`recommend` with `signal_location`, `compare_audiences`, …) via `createDirectQlooWorkflowExecutorFromEnvironment`.
+- `core/agent.ts`: turns area taste signals and the menu into evidence-linked suggestions.
+- `web/`: Vite + React front end.
+
+## Run it
+
+Requires Node 22.19+ and an AWS profile with Amplify/CDK permissions (account bootstrapped for CDK).
+
+```sh
+npm install
+AWS_PROFILE=<profile> AWS_REGION=us-east-1 npm run sandbox   # deploys a personal backend, writes amplify_outputs.json
+npm run dev                                                  # http://localhost:5173
+```
+
+Deploy the front end to Amplify Hosting: `AWS_PROFILE=<profile> scripts/deploy-web.sh`.
+Live demo: https://main.d1kr390j864wbi.amplifyapp.com (no sign-up needed).
+
+The Qloo key is an Amplify secret (stored in SSM), never in the repo or the browser:
+
+```sh
+npx ampx sandbox secret set QLOO_API_KEY --identifier demo
+```
 
 ## License
 

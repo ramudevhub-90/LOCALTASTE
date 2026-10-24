@@ -1,32 +1,28 @@
-import { useEffect, useState } from "react";
-import type { AnalyzeResult, AreaComparison, AreaTaste, Domain, Suggestion, TasteSignal } from "./api.ts";
-import { DOMAIN_LABEL, analyze, compare, getAreas } from "./api.ts";
+import { useState } from "react";
+import type { AreaComparison, AreaTaste, Domain, RunResult, Suggestion, TasteSignal } from "./api.ts";
+import { DEMO_AREAS, DOMAIN_LABEL, runAnalysis } from "./api.ts";
 
 const DEMO_MENU = "Cappuccino\nPour-over coffee\nMasala chai\nCroissant\nAvocado toast\nBrownie";
 const KIND_LABEL: Record<Suggestion["kind"], string> = { menu: "Menu idea", playlist: "Playlist", theme_night: "Theme night" };
 
 export function App() {
-  const [areas, setAreas] = useState<string[]>([]);
+  const areas = DEMO_AREAS;
   const [location, setLocation] = useState("12th Main, Indiranagar, Bengaluru");
   const [menu, setMenu] = useState(DEMO_MENU);
-  const [result, setResult] = useState<AnalyzeResult | null>(null);
+  const [result, setResult] = useState<RunResult | null>(null);
   const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    getAreas().then((r) => setAreas(r.areas)).catch(() => {});
-  }, []);
+  const [step, setStep] = useState("");
 
   async function run(e: React.FormEvent) {
     e.preventDefault();
-    setBusy(true);
+    setStep("Starting…");
     setError("");
     try {
-      setResult(await analyze(location, menu.split("\n").map((m) => m.trim()).filter(Boolean)));
+      setResult(await runAnalysis({ location, menu: menu.split("\n").map((m) => m.trim()).filter(Boolean) }, setStep));
     } catch (err) {
       setError((err as Error).message);
     } finally {
-      setBusy(false);
+      setStep("");
     }
   }
 
@@ -50,12 +46,12 @@ export function App() {
           Current menu <span className="hint">(one item per line)</span>
           <textarea value={menu} onChange={(e) => setMenu(e.target.value)} rows={6} />
         </label>
-        <button disabled={busy}>{busy ? "Reading the neighbourhood…" : "Get taste advice"}</button>
+        <button disabled={!!step}>{step || "Get taste advice"}</button>
         {error && <p className="error">{error}</p>}
       </form>
 
       {result && <Results result={result} />}
-      {result && <Compare home={result.area} areas={areas} />}
+      {result && <Compare home={result.area} menu={menu} areas={areas} />}
 
       <footer className="foot">
         Results describe aggregate neighbourhood affinities from Qloo, not any individual's preferences.
@@ -64,7 +60,7 @@ export function App() {
   );
 }
 
-function Results({ result }: { result: AnalyzeResult }) {
+function Results({ result }: { result: RunResult }) {
   const byId = new Map(result.area.signals.map((s) => [s.id, s]));
   return (
     <>
@@ -137,19 +133,25 @@ function SuggestionCard({ s, signals }: { s: Suggestion; signals: TasteSignal[] 
   );
 }
 
-function Compare({ home, areas }: { home: AreaTaste; areas: string[] }) {
+function Compare({ home, menu, areas }: { home: AreaTaste; menu: string; areas: string[] }) {
   const [other, setOther] = useState("");
   const [cmp, setCmp] = useState<AreaComparison | null>(null);
   const [error, setError] = useState("");
+  const [step, setStep] = useState("");
   const options = areas.filter((a) => a !== home.label);
 
   async function run(e: React.FormEvent) {
     e.preventDefault();
     setError("");
+    setStep("Starting…");
     try {
-      setCmp(await compare(home.query, other || options[0]));
+      const items = menu.split("\n").map((m) => m.trim()).filter(Boolean);
+      const res = await runAnalysis({ location: home.query, menu: items, compareWith: other || options[0] }, setStep);
+      setCmp(res.comparison ?? null);
     } catch (err) {
       setError((err as Error).message);
+    } finally {
+      setStep("");
     }
   }
 
@@ -158,7 +160,7 @@ function Compare({ home, areas }: { home: AreaTaste; areas: string[] }) {
       <h2>Compare with another area</h2>
       <form className="row" onSubmit={run}>
         <input placeholder={options[0] ?? "Second branch location"} value={other} onChange={(e) => setOther(e.target.value)} list="areas" />
-        <button>Compare</button>
+        <button disabled={!!step}>{step || "Compare"}</button>
       </form>
       {error && <p className="error">{error}</p>}
       {cmp && (

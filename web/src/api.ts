@@ -1,45 +1,15 @@
-// Client-side mirrors of the server types. The browser never talks to Qloo.
+// Browser side of the agent: start a job, then stream its progress over the
+// AppSync subscription. The browser never talks to Qloo or Bedrock directly.
 
-export type Domain = "dining" | "music" | "film_tv" | "brand";
+import { generateClient } from "aws-amplify/data";
+import type { Schema } from "../../amplify/data/resource";
+import type { AnalyzeResult } from "../../core/agent.ts";
+import type { AreaComparison, Domain } from "../../core/qloo/types.ts";
 
-export interface TasteSignal {
-  id: string;
-  name: string;
-  domain: Domain;
-  affinity: number;
-  lift?: number;
-  tags: string[];
-  evidence: { operation: string; input: Record<string, unknown>; source: "sample" | "live" };
-}
+export type { AnalyzeResult, Suggestion } from "../../core/agent.ts";
+export type { AreaComparison, AreaTaste, Domain, TasteSignal } from "../../core/qloo/types.ts";
 
-export interface AreaTaste {
-  query: string;
-  label: string;
-  city: string;
-  source: "sample" | "live";
-  signals: TasteSignal[];
-}
-
-export interface Suggestion {
-  kind: "menu" | "playlist" | "theme_night";
-  title: string;
-  pitch: string;
-  evidence: string[];
-}
-
-export interface AnalyzeResult {
-  area: AreaTaste;
-  suggestions: Suggestion[];
-  writer: "template" | "claude";
-}
-
-export interface AreaComparison {
-  a: AreaTaste;
-  b: AreaTaste;
-  onlyA: TasteSignal[];
-  onlyB: TasteSignal[];
-  shared: { name: string; domain: Domain; a: number; b: number }[];
-}
+export type RunResult = AnalyzeResult & { comparison?: AreaComparison };
 
 export const DOMAIN_LABEL: Record<Domain, string> = {
   dining: "Food & drink",
@@ -48,13 +18,47 @@ export const DOMAIN_LABEL: Record<Domain, string> = {
   brand: "Brands",
 };
 
-async function post<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error ?? `Request failed (${res.status})`);
-  return data as T;
-}
+export const DEMO_AREAS = [
+  "Indiranagar, Bengaluru",
+  "Koramangala, Bengaluru",
+  "Jayanagar, Bengaluru",
+  "HSR Layout, Bengaluru",
+  "Malleshwaram, Bengaluru",
+  "Whitefield, Bengaluru",
+];
 
-export const analyze = (location: string, menu: string[]) => post<AnalyzeResult>("/api/analyze", { location, menu });
-export const compare = (a: string, b: string) => post<AreaComparison>("/api/compare", { a, b });
-export const getAreas = () => fetch("/api/areas").then((r) => r.json() as Promise<{ areas: string[] }>);
+const client = generateClient<Schema>();
+type Job = Schema["AnalysisJob"]["type"];
+
+export async function runAnalysis(
+  input: { location: string; menu: string[]; compareWith?: string },
+  onStep: (step: string) => void,
+): Promise<RunResult> {
+  const { data: job, errors } = await client.mutations.startAnalysis(input);
+  if (!job) throw new Error(errors?.[0]?.message ?? "Could not start the analysis.");
+  onStep(job.step ?? "Queued");
+
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const handle = (j: Job | null | undefined) => {
+      if (!j || settled) return;
+      if (j.step) onStep(j.step);
+      if (j.status === "DONE" || j.status === "FAILED") {
+        settled = true;
+        sub.unsubscribe();
+        clearInterval(poll);
+        if (j.status === "DONE") resolve(JSON.parse(j.result as string));
+        else reject(new Error(j.error ?? "The analysis failed."));
+      }
+    };
+    const sub = client.models.AnalysisJob.onUpdate({ filter: { id: { eq: job.id } } }).subscribe({
+      next: handle,
+      error: (err) => !settled && reject(err),
+    });
+    // The subscription's socket can connect after a fast job has finished, so
+    // also poll occasionally until one of the two sees a final status.
+    const check = () => client.models.AnalysisJob.get({ id: job.id }).then(({ data }) => handle(data));
+    const poll = setInterval(check, 3000);
+    check();
+  });
+}

@@ -3,6 +3,9 @@ web/dist/
 .env
 .env.*
 !.env.example
-.cache/
 *.log
 .DS_Store
+# Amplify
+.amplify/
+amplify_outputs*
+amplifyconfiguration*

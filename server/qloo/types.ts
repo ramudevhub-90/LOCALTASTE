@@ -1,0 +1,56 @@
+// Shapes the rest of the app depends on. Both the sample and live Qloo
+// sources must return these, so swapping sources never touches the agent or UI.
+
+export type Domain = "dining" | "music" | "film_tv" | "brand";
+
+export const DOMAINS: readonly Domain[] = ["dining", "music", "film_tv", "brand"];
+
+// The Qloo workflow call that produced a signal: shown in the UI as "why this?".
+export interface Evidence {
+  operation: "recommend" | "where_popular" | "compare_audiences" | "find_tags";
+  input: Record<string, unknown>;
+  source: "sample" | "live";
+}
+
+// One aggregate neighbourhood affinity (never a claim about an individual).
+export interface TasteSignal {
+  id: string;
+  name: string;
+  domain: Domain;
+  // Qloo affinity score for the area, 0–1.
+  affinity: number;
+  // How much higher than the city baseline, e.g. 1.8 = 80% above. Optional.
+  lift?: number;
+  tags: string[];
+  evidence: Evidence;
+}
+
+export interface AreaTaste {
+  query: string;
+  label: string;
+  city: string;
+  source: "sample" | "live";
+  signals: TasteSignal[];
+}
+
+export interface AreaComparison {
+  a: AreaTaste;
+  b: AreaTaste;
+  // Signals clearly stronger in one area than the other.
+  onlyA: TasteSignal[];
+  onlyB: TasteSignal[];
+  shared: { name: string; domain: Domain; a: number; b: number }[];
+}
+
+export interface QlooSource {
+  readonly mode: "sample" | "live";
+  areaTaste(location: string): Promise<AreaTaste>;
+}
+
+export class QlooError extends Error {
+  readonly code: string;
+  constructor(code: string, message: string) {
+    super(message);
+    this.code = code;
+  }
+}

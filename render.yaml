@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: localtaste
+    runtime: node
+    plan: free
+    region: singapore
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: 22.19.0
+      - key: QLOO_MODE
+        value: sample
+      # Set these in the Render dashboard, never in this file.
+      - key: QLOO_API_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false

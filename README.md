@@ -52,7 +52,7 @@ npm run dev                                                  # http://localhost:
 ```
 
 Deploy the front end to Amplify Hosting: `AWS_PROFILE=<profile> scripts/deploy-web.sh`.
-Live demo: https://main.d1kr390j864wbi.amplifyapp.com (no sign-up needed).
+Live demo: https://localtaste.revenuerush.in (no sign-up needed).
 
 The Qloo key is an Amplify secret (stored in SSM), never in the repo or the browser:
 

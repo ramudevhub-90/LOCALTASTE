@@ -12,4 +12,4 @@ ZIP="$(mktemp -d)/web.zip"
 read -r JOB URL <<<"$(aws amplify create-deployment --app-id "$APP_ID" --branch-name "$BRANCH" --query '[jobId,zipUploadUrl]' --output text)"
 curl -sf -T "$ZIP" "$URL"
 aws amplify start-deployment --app-id "$APP_ID" --branch-name "$BRANCH" --job-id "$JOB" --query jobSummary.status --output text
-echo "https://$BRANCH.$APP_ID.amplifyapp.com"
+echo "https://localtaste.revenuerush.in (also https://$BRANCH.$APP_ID.amplifyapp.com)"

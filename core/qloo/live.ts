@@ -35,13 +35,21 @@ export interface QlooItem {
 export async function qlooExec(operation: QlooOperation, input: Record<string, unknown>): Promise<QlooResult> {
   executor ??= createDirectQlooWorkflowExecutorFromEnvironment();
   if (!executor) throw new QlooError("QLOO_NOT_CONFIGURED", "Qloo is not configured (missing QLOO_API_KEY).");
-  try {
-    const run = await executor.execute(operation, input as never);
-    return run.result as unknown as QlooResult;
-  } catch (err) {
-    const code = (err as { code?: string }).code ?? "QLOO_FAILED";
-    const message = code === "QLOO_RATE_LIMIT" ? "Qloo rate limit reached. Try again shortly." : `Qloo ${operation} failed (${code}).`;
-    throw new QlooError(code, message);
+  // The event key has a tight rate limit, so back off and retry a few times
+  // before giving up; most bursts clear within seconds.
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const run = await executor.execute(operation, input as never);
+      return run.result as unknown as QlooResult;
+    } catch (err) {
+      const code = (err as { code?: string }).code ?? "QLOO_FAILED";
+      if (code === "QLOO_RATE_LIMIT" && attempt < 4) {
+        await new Promise((r) => setTimeout(r, 800 * 2 ** attempt + Math.random() * 400));
+        continue;
+      }
+      const message = code === "QLOO_RATE_LIMIT" ? "Qloo is busy right now. Please try again in a minute." : `Qloo ${operation} failed (${code}).`;
+      throw new QlooError(code, message);
+    }
   }
 }
 
@@ -99,7 +107,8 @@ const VIBE_TAG = /:(audience|ambience|good_for|style|influencer_appeal|cost_desc
 const FOOD_TAG = /:(genre|cuisine|category):place|:cuisine:/;
 
 // Hotels, malls and big chains say little about a neighbourhood's own taste.
-const NOT_LOCAL = /hotel|oberoi|\btaj\b|marriott|hyatt|hilton|sheraton|conrad|orchid|mall|burger king|mcdonald|kfc|domino|pizza hut|subway|starbucks|stadium|airport/i;
+const NOT_LOCAL =
+  /hotel|oberoi|\btaj\b|marriott|hyatt|hilton|sheraton|conrad|orchid|resort|mall|burger king|mcdonald|kfc|domino|pizza hut|subway|starbucks|stadium|airport|museum|cemetery|temple|church|mosque|hospital|school|college|university|tech park|banquet|convention|theatre|cinema|station|metro|park$/i;
 export const isLocalVenue = (name: string) => !NOT_LOCAL.test(name);
 
 // The café's place: our own geocode when available (live), else the text split.
@@ -115,20 +124,33 @@ export async function resolvePlace(location: string): Promise<{ hood: string; ci
   return { hood, city, filter: [hood, city, place?.region].filter(Boolean).join(", "), place };
 }
 
-// Qloo's own location filter can land in the wrong city, so keep only venues
-// whose address names the city (or the café's postcode); if too few survive,
-// take the city's favourites that sit in the neighbourhood instead.
+// Only places to eat and drink (Qloo place genre tags).
+export const EAT_TAGS = { include_tags: ["urn:tag:genre:place:restaurant", "urn:tag:genre:place:cafe", "urn:tag:genre:place:bar"], include_tags_operator: "union" };
+
+// Qloo's own location filter can land in the wrong city or, for a locality it
+// doesn't know, quietly return the whole city. So check addresses: a venue is
+// in the neighbourhood only if its address names it (or the café's postcode).
 async function localVenues(hood: string, city: string, filter: string, place?: GeoPlace) {
   const inCity = (v: QlooItem) => addressHas(v.properties?.address, city) || addressHas(v.properties?.address, place?.postcode);
   const inHood = (v: QlooItem) => addressHas(v.properties?.address, hood) || addressHas(v.properties?.address, place?.postcode);
-  const input = { target_type: "place", signal_location: city, filter_location: filter, limit: 15, explain: false };
-  let venues = resultItems(await qlooExec("recommend", input)).filter((v) => isLocalVenue(v.name!) && inCity(v));
-  if (venues.length >= 4) return { venues, input };
-  const wide = { target_type: "place", signal_location: city, filter_location: [city, place?.region].filter(Boolean).join(", "), limit: 20, explain: false };
-  const near = resultItems(await qlooExec("recommend", wide)).filter((v) => isLocalVenue(v.name!) && inHood(v));
-  const seen = new Set(venues.map((v) => v.entity_id));
-  venues = [...venues, ...near.filter((v) => !seen.has(v.entity_id))];
-  return { venues, input: venues.length > 0 && near.length > 0 ? wide : input };
+  const input = { target_type: "place", signal_location: city, filter_location: filter, limit: 15, explain: false, ...EAT_TAGS };
+  const first = resultItems(await qlooExec("recommend", input)).filter((v) => isLocalVenue(v.name!) && inCity(v));
+  const near = first.filter(inHood);
+  if (near.length >= 3) return { venues: first, input, local: true };
+  // Too few in the neighbourhood: look through the city's favourites for ones
+  // that are, and otherwise use the city's favourites and say so.
+  const wide = { target_type: "place", signal_location: city, filter_location: [city, place?.region].filter(Boolean).join(", "), limit: 20, explain: false, ...EAT_TAGS };
+  const cityWide = resultItems(await qlooExec("recommend", wide)).filter((v) => isLocalVenue(v.name!) && inCity(v));
+  // If the neighbourhood query differs from the city's list, Qloo did place
+  // the neighbourhood (addresses often name only the borough or city, as in
+  // Brooklyn); if it is mostly the same list, Qloo didn't know the locality.
+  const cityIds = new Set(cityWide.map((v) => v.entity_id));
+  const overlap = first.length ? first.filter((v) => cityIds.has(v.entity_id)).length / first.length : 1;
+  if (first.length >= 3 && overlap < 0.5) return { venues: first, input, local: true };
+  const seen = new Set(near.map((v) => v.entity_id));
+  const nearAll = [...near, ...cityWide.filter((v) => inHood(v) && !seen.has(v.entity_id))];
+  if (nearAll.length >= 3) return { venues: nearAll, input: wide, local: true };
+  return { venues: cityWide.length ? cityWide : first, input: cityWide.length ? wide : input, local: false };
 }
 
 export const liveSource: QlooSource = {
@@ -145,7 +167,10 @@ export const liveSource: QlooSource = {
     );
     for (const { domain, input, items } of media) signals.push(...toSignals(items, domain, { operation: "recommend", input, source: "live" }));
 
-    const { venues, input: placeInput } = await localVenues(hood, city, filter, place);
+    const { venues, input: placeInput, local } = await localVenues(hood, city, filter, place);
+    // Small localities may have few venues on Qloo; then the venue signals are
+    // the city's favourites, and the UI and the agent say so.
+    const scope: "neighbourhood" | "city" = local ? "neighbourhood" : "city";
     const picked = venues.slice(0, 8);
     signals.push(...toSignals(picked, "dining", { operation: "recommend", input: placeInput, source: "live" }, "venue").map((s) => ({ ...s, tags: ["venue"] })));
 
@@ -166,6 +191,7 @@ export const liveSource: QlooSource = {
       source: "live",
       signals,
       placeFilter: filter,
+      venueScope: scope,
       ...(place ? { geo: { lat: place.lat, lon: place.lon, country: place.country, postcode: place.postcode } } : {}),
     };
   },

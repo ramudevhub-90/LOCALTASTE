@@ -17,6 +17,7 @@ import {
   type AreaTaste,
   type TasteCache,
   type TasteSignal,
+  EAT_TAGS,
   domainOf,
   getAreaTaste,
   memoryCache,
@@ -205,7 +206,8 @@ export function groundedWhy(area: AreaTaste, pool: Map<string, TasteSignal>, sig
   const facts: string[] = [];
   const list = (xs: string[]) => (xs.length > 1 ? `${xs.slice(0, -1).join(", ")} and ${xs.at(-1)}` : xs[0]);
   const venues = sigs.filter((g) => g.id.startsWith("venue:")).map((g) => g.name);
-  if (venues.length) facts.push(`${list(venues)} ${venues.length > 1 ? "are" : "is"} among ${hood}'s most favoured venues on Qloo`);
+  const where = area.venueScope === "city" ? city : hood;
+  if (venues.length) facts.push(`${list(venues)} ${venues.length > 1 ? "are" : "is"} among ${where}'s most favoured venues on Qloo`);
   const food = sigs.filter((g) => g.id.startsWith("food:")).map((g) => g.name);
   if (food.length) facts.push(`Qloo tags ${hood}'s favoured venues as ${list(food)}`);
   const media = sigs.filter((g) => /^(music|film_tv|brand):/.test(g.id)).map((g) => g.name);
@@ -267,7 +269,7 @@ function qlooTools(area: AreaTaste, pool: Map<string, TasteSignal>, extra: Taste
         ...(entities.length ? { signals: entities.slice(0, 5) } : {}),
         ...(tags.length ? { signal_tags: tags.slice(0, 5) } : {}),
         signal_location: city,
-        ...(input.target_type === "place" ? { filter_location: hood } : {}),
+        ...(input.target_type === "place" ? { filter_location: hood, ...EAT_TAGS } : {}),
         limit: Math.min(Number(input.limit) || 6, 10),
         explain: false,
       };
@@ -317,6 +319,7 @@ async function agentLoop(
             `Current menu: ${menu.length ? menu.join("; ") : "(not given)"}`,
             `Qloo data: ${area.source}${live ? "" : " (sample; qloo_recommend is unavailable, so submit directly)"}`,
             `Area: ${area.label} (city: ${area.city})`,
+            ...(area.venueScope === "city" ? [`Note: Qloo lists few venues right around this address, so the venue signals are ${area.city}'s favourites, not the immediate neighbourhood's. Say "in ${area.city}" rather than "nearby".`] : []),
             "",
             "Signals (id | name | domain | scores | tags):",
             ...area.signals.map(line),

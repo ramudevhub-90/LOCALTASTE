@@ -34,13 +34,59 @@ export const DOMAIN_LABEL: Record<Domain, string> = {
   vibe: "Crowd & vibe",
 };
 
+// Suggestions for the address box, grouped by city. Any address works; these
+// are well-known café neighbourhoods where Qloo has rich data.
 export const DEMO_AREAS = [
+  // Bengaluru
   "Indiranagar, Bengaluru",
   "Koramangala, Bengaluru",
+  "HSR Layout, Bengaluru",
+  "Jayanagar, Bengaluru",
+  "Malleshwaram, Bengaluru",
+  "Whitefield, Bengaluru",
+  "JP Nagar, Bengaluru",
+  "Church Street, Bengaluru",
+  // Mumbai
+  "Bandra West, Mumbai",
+  "Colaba, Mumbai",
+  "Lower Parel, Mumbai",
+  "Andheri West, Mumbai",
+  "Powai, Mumbai",
+  // Delhi NCR
+  "Hauz Khas, New Delhi",
+  "Connaught Place, New Delhi",
+  "Khan Market, New Delhi",
+  "Cyber Hub, Gurugram",
+  // Other Indian cities
+  "Jubilee Hills, Hyderabad",
+  "Banjara Hills, Hyderabad",
+  "Koregaon Park, Pune",
+  "Besant Nagar, Chennai",
+  "Park Street, Kolkata",
+  "Anjuna, Goa",
+  // United States
   "Williamsburg, Brooklyn, NY",
+  "East Village, New York, NY",
   "Mission District, San Francisco",
-  "Shoreditch, London",
+  "Hayes Valley, San Francisco",
   "Silver Lake, Los Angeles, CA",
+  "Venice, Los Angeles, CA",
+  "Wicker Park, Chicago",
+  "Capitol Hill, Seattle",
+  "South Congress, Austin",
+  "Pearl District, Portland",
+  // Europe and beyond
+  "Shoreditch, London",
+  "Soho, London",
+  "Le Marais, Paris",
+  "Kreuzberg, Berlin",
+  "Jordaan, Amsterdam",
+  "Gràcia, Barcelona",
+  "Shibuya, Tokyo",
+  "Surry Hills, Sydney",
+  "Fitzroy, Melbourne",
+  "Tiong Bahru, Singapore",
+  "Jumeirah, Dubai",
 ];
 
 const client = generateClient<Schema>();
@@ -60,6 +106,12 @@ export async function runFollowUp<T>(parentId: string, kind: "branch" | "competi
   const { data: job, errors } = await client.mutations.startFollowUp({ parentId, kind, input });
   if (!job) throw new Error(errors?.[0]?.message ?? "Could not start that.");
   return (await waitFor(job, onStep)) as T;
+}
+
+// Address suggestions while typing, like a maps search box.
+export async function suggestPlaces(text: string): Promise<string[]> {
+  const { data } = await client.queries.suggestPlaces({ text });
+  return (data ?? []).filter((x): x is string => !!x);
 }
 
 function waitFor(job: Job, onStep: (step: string) => void): Promise<unknown> {

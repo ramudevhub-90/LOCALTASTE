@@ -55,6 +55,9 @@ export interface AreaTaste {
   signals: TasteSignal[];
   // Qloo filter_location for places in this neighbourhood (live).
   placeFilter?: string;
+  // "city" when the neighbourhood had too few venues on Qloo and the venue
+  // signals are the city's favourites instead.
+  venueScope?: "neighbourhood" | "city";
   // Geocoded centre of the café's area (live).
   geo?: { lat: number; lon: number; country?: string; postcode?: string };
 }

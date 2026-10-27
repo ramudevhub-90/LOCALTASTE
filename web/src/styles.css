@@ -217,3 +217,14 @@ button.chip { background: var(--accent-soft); color: var(--accent); padding: 6px
   .card { border: 0; padding: 0; break-inside: avoid; }
   .sugg { break-inside: avoid; }
 }
+
+/* Address box with suggestions */
+.addr { position: relative; margin-top: 6px; }
+.addr input { margin-top: 0; }
+.row .addr { flex: 1; min-width: 200px; margin: 0; }
+.addr-list { position: absolute; z-index: 20; left: 0; right: 0; top: calc(100% + 4px); margin: 0; padding: 4px; list-style: none; background: var(--card); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 10px 30px rgb(0 0 0 / .12); max-height: 320px; overflow: auto; }
+.addr-list li { margin: 0; }
+.addr-head { padding: 6px 10px; font: 600 0.7rem var(--mono); text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+.addr-list button { display: block; width: 100%; text-align: left; background: none; color: var(--ink); font-weight: 400; font-size: 0.92rem; padding: 8px 10px; border-radius: 4px; }
+.addr-list button:hover, .addr-list button.on { background: var(--accent-soft); filter: none; }
+.scope-note { margin: -4px 0 14px; font-size: 0.88rem; color: var(--warn-ink); background: var(--warn-bg); padding: 8px 12px; border-radius: 4px; }

@@ -1,6 +1,7 @@
 import { type ClientSchema, a, defineData } from "@aws-amplify/backend";
 import { analyzeWorker } from "../functions/analyze-worker/resource";
 import { startAnalysis } from "../functions/start-analysis/resource";
+import { suggestPlaces } from "../functions/suggest-places/resource";
 
 const schema = a
   .schema({
@@ -37,6 +38,14 @@ const schema = a
       .returns(a.ref("AnalysisJob"))
       .authorization((allow) => [allow.guest(), allow.authenticated()])
       .handler(a.handler.function(startAnalysis)),
+
+    // Address suggestions while typing (Amazon Location autocomplete).
+    suggestPlaces: a
+      .query()
+      .arguments({ text: a.string().required() })
+      .returns(a.string().array())
+      .authorization((allow) => [allow.guest(), allow.authenticated()])
+      .handler(a.handler.function(suggestPlaces)),
 
     startFollowUp: a
       .mutation()

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { AreaComparison, AreaTaste, Domain, RunResult, Suggestion, TasteSignal } from "./api.ts";
 import { DEMO_AREAS, DOMAIN_LABEL, runAnalysis } from "./api.ts";
+import { AddressBox } from "./AddressBox.tsx";
 import { AskAgent, GrowTools, InsightsPanel, PlanActions } from "./extras.tsx";
 import { spotifySearch } from "./plan.ts";
 
@@ -50,8 +51,7 @@ export function App() {
           <h1>What does your neighbourhood love?</h1>
           <label>
             Café address or neighbourhood
-            <input value={location} onChange={(e) => setLocation(e.target.value)} list="areas" required />
-            <datalist id="areas">{areas.map((a) => <option key={a} value={a} />)}</datalist>
+            <AddressBox value={location} onChange={setLocation} placeholder="Any address, e.g. Chikkabanavara, Bengaluru" required />
           </label>
           <label>
             Your café's name <span className="hint">(optional: see how it stands against the neighbourhood)</span>
@@ -98,6 +98,12 @@ function Results({ result }: { result: RunResult }) {
           <h2>Taste map · {result.area.label}</h2>
           {result.area.source === "sample" ? <span className="pill warn">Sample data</span> : <span className="pill live">Live Qloo</span>}
         </div>
+        {result.area.venueScope === "city" && (
+          <p className="scope-note">
+            Qloo lists only a few venues right around this address, so the venues below are {result.area.city}'s favourites. Music, film and
+            brands are city-wide everywhere.
+          </p>
+        )}
         <Favourites area={result.area} />
         <TasteMap area={result.area} />
       </section>
@@ -219,7 +225,9 @@ function Compare({ home, menu, areas }: { home: AreaTaste; menu: string; areas: 
   const [cmp, setCmp] = useState<AreaComparison | null>(null);
   const [error, setError] = useState("");
   const [step, setStep] = useState("");
-  const options = areas.filter((a) => a !== home.label);
+  // Suggest other neighbourhoods in the same city first.
+  const inCity = (a: string) => (a.toLowerCase().includes(home.city.toLowerCase()) ? 1 : 0);
+  const options = areas.filter((a) => a !== home.label).sort((x, y) => inCity(y) - inCity(x));
 
   async function run(e: React.FormEvent) {
     e.preventDefault();
@@ -240,7 +248,7 @@ function Compare({ home, menu, areas }: { home: AreaTaste; menu: string; areas: 
     <section className="card">
       <h2>Compare with another area</h2>
       <form className="row" onSubmit={run}>
-        <input placeholder={options[0] ?? "Second branch location"} value={other} onChange={(e) => setOther(e.target.value)} list="areas" />
+        <AddressBox placeholder={options[0] ?? "Second branch location"} value={other} onChange={setOther} />
         <button disabled={!!step}>{step || "Compare"}</button>
       </form>
       {error && <p className="error">{error}</p>}

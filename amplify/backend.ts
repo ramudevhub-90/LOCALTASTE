@@ -8,8 +8,9 @@ import { auth } from "./auth/resource";
 import { data } from "./data/resource";
 import { analyzeWorker } from "./functions/analyze-worker/resource";
 import { startAnalysis } from "./functions/start-analysis/resource";
+import { suggestPlaces } from "./functions/suggest-places/resource";
 
-const backend = defineBackend({ auth, data, startAnalysis, analyzeWorker });
+const backend = defineBackend({ auth, data, startAnalysis, analyzeWorker, suggestPlaces });
 
 // Both functions live in the data stack (resourceGroupName), so the queue and
 // cache table go there too to avoid cross-stack cycles.
@@ -70,4 +71,8 @@ worker.addToRolePolicy(
     actions: ["geo-places:Geocode", "geo-places:ReverseGeocode"],
     resources: [`arn:aws:geo-places:${stack.region}::provider/default`],
   }),
+);
+
+backend.suggestPlaces.resources.lambda.addToRolePolicy(
+  new PolicyStatement({ actions: ["geo-places:Autocomplete"], resources: [`arn:aws:geo-places:${stack.region}::provider/default`] }),
 );

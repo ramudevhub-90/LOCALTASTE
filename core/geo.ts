@@ -19,8 +19,12 @@ let client: GeoPlacesClient | undefined;
 const geo = () => (client ??= new GeoPlacesClient({ region: process.env.GEO_REGION ?? "us-east-1" }));
 
 export async function geocode(text: string): Promise<GeoPlace | undefined> {
-  const res = await geo().send(new GeocodeCommand({ QueryText: text, MaxResults: 1 }));
-  const item = res.ResultItems?.[0];
+  // The top match can be a same-named street elsewhere ("350 5th Ave, New
+  // York" → Park Slope, Brooklyn), so prefer a match whose city the owner typed.
+  const res = await geo().send(new GeocodeCommand({ QueryText: text, MaxResults: 5 }));
+  const typed = squash(text);
+  const items = res.ResultItems ?? [];
+  const item = items.find((r) => r.Address?.Locality && typed.includes(squash(r.Address.Locality))) ?? items[0];
   const a = item?.Address;
   const [lon, lat] = item?.Position ?? [];
   if (!a?.Locality || lat === undefined || lon === undefined) return undefined;

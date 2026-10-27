@@ -39,7 +39,7 @@ export const qlooMode = () => source().mode;
 
 export async function getAreaTaste(location: string, cache: TasteCache = memoryCache): Promise<AreaTaste> {
   const src = source();
-  const key = `area:v7:${src.mode}:${location.trim().toLowerCase()}`;
+  const key = `area:v8:${src.mode}:${location.trim().toLowerCase()}`;
   const hit = await cache.get(key);
   if (hit) return hit;
   const value = await src.areaTaste(location);

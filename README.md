@@ -19,12 +19,16 @@ Results are aggregate neighbourhood affinities, never claims about individuals.
 
 The worker runs a tool-use agent loop on Amazon Bedrock (`core/agent-bedrock.ts`, Amazon Nova Pro through the model-neutral Converse API, IAM roles only, no API key) with Qloo workflows as tools:
 
-1. `get_area_taste` maps the neighbourhood with Qloo `recommend` (`signal_location`) for artists, TV shows and brands,
-   plus the favoured venues and the concepts (`entity_tags`) that characterize them.
-2. The model digs further where it sharpens an idea, e.g. `qloo_recommend` with a top artist as a signal to find
-   places their fans like, or `qloo_find_tags` to turn a cuisine into a Qloo tag.
-3. It submits suggestions through a strict `submit_suggestions` tool. Every suggestion must cite signal ids from
-   the tool results; uncited suggestions are dropped, and the UI shows each cited signal with its Qloo call.
+1. The worker maps the area with Qloo: `recommend` with the city as `signal_location` for artists, TV shows and
+   brands; the neighbourhood's own favoured venues (`filter_location`); and `entity_tags` on those venues for food
+   concepts and the crowd's vibe. The model gets all of it up front, each signal with an id.
+2. The model digs deeper with 2-5 `qloo_recommend` calls, one lead each: places in the neighbourhood that fans of a
+   top artist favour, artists that fans of a favoured venue like, shows for theme nights. Known signals are passed by
+   Qloo id. If it tries to submit before two calls return something, it is sent back once.
+3. It submits suggestions through `submit_suggestions`. Code checks each one: menu ideas must cite a dining signal,
+   the playlist music, theme nights the show or artist they are built on. Each "Why it fits" line is written from the
+   cited Qloo results (e.g. "Fans of Three Dots & A Dash in Bengaluru also favour Mirzapur"), not by the model, so it
+   never claims a link the data does not show.
 
 Every tool call is recorded and shown under "How the agent worked". If Qloo or Bedrock is not available, the app
 falls back to clearly labelled sample data and a deterministic template writer, so the demo never breaks.

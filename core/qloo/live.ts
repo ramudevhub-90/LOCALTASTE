@@ -75,6 +75,7 @@ export function toSignals(items: QlooItem[], domain: Domain, evidence: Evidence,
     ...(typeof item.popularity === "number" ? { popularity: Math.round(item.popularity * 100) / 100 } : {}),
     tags: item.type?.startsWith("urn:tag:") ? [item.type.split(":")[2]] : [],
     ...(item.properties?.short_description ? { note: item.properties.short_description } : {}),
+    ...((item.entity_id ?? item.id) ? { qlooId: item.entity_id ?? item.id } : {}),
     evidence,
   }));
 }
@@ -94,6 +95,10 @@ export function splitLocation(location: string): { city: string; area: string } 
 const VIBE_TAG = /:(audience|ambience|good_for|style|influencer_appeal|cost_description):/;
 const FOOD_TAG = /:(genre|cuisine|category):place|:cuisine:/;
 
+// Hotels, malls and big chains say little about a neighbourhood's own taste.
+const NOT_LOCAL = /hotel|oberoi|\btaj\b|marriott|hyatt|hilton|sheraton|conrad|orchid|mall|burger king|mcdonald|kfc|domino|pizza hut|subway|starbucks|stadium|airport/i;
+export const isLocalVenue = (name: string) => !NOT_LOCAL.test(name);
+
 export const liveSource: QlooSource = {
   mode: "live",
   async areaTaste(location: string): Promise<AreaTaste> {
@@ -109,7 +114,7 @@ export const liveSource: QlooSource = {
     for (const { domain, input, items } of media) signals.push(...toSignals(items, domain, { operation: "recommend", input, source: "live" }));
 
     const placeInput = { target_type: "place", signal_location: city, filter_location: area, limit: 15, explain: false };
-    const venues = resultItems(await qlooExec("recommend", placeInput)).filter((v) => !/hotel|oberoi|taj |marriott|mall/i.test(v.name!));
+    const venues = resultItems(await qlooExec("recommend", placeInput)).filter((v) => isLocalVenue(v.name!));
     const local = venues.filter((v) => !area.includes(",") || (v.properties?.address ?? "").toLowerCase().includes(area.split(",")[0].toLowerCase()));
     const picked = (local.length >= 4 ? local : venues).slice(0, 8);
     signals.push(...toSignals(picked, "dining", { operation: "recommend", input: placeInput, source: "live" }, "venue").map((s) => ({ ...s, tags: ["venue"] })));

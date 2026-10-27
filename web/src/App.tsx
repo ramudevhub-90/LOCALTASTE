@@ -136,6 +136,7 @@ function SuggestionCard({ s, signals }: { s: Suggestion; signals: TasteSignal[] 
       <span className="kind">{KIND_LABEL[s.kind]}</span>
       <h3>{s.title}</h3>
       <p>{s.pitch}</p>
+      {s.why && <p className="why">{s.why}</p>}
       <button className="link" onClick={() => setOpen(!open)} aria-expanded={open}>
         {open ? "Hide evidence" : "Why this?"}
       </button>

@@ -28,11 +28,21 @@ const cache: TasteCache = {
 
 // `dummyKey` lets the self-test prove the harness reaches Qloo (expecting a
 // QLOO_AUTH 401) before the real key exists. It is never a real credential.
-// `probe` runs one Qloo workflow and returns the raw envelope, for tuning.
-type SelfTest = { selftest: true; dummyKey?: string; probe?: { operation: QlooOperation; input: Record<string, unknown> } };
+// `probe` runs one Qloo workflow and returns the raw envelope; `agent` runs the
+// whole agent without a job. Both are for tuning from the CLI.
+type SelfTest = {
+  selftest: true;
+  dummyKey?: string;
+  probe?: { operation: QlooOperation; input: Record<string, unknown> };
+  agent?: { location: string; menu: string[] };
+};
 
 export const handler = async (event: SQSEvent | SelfTest): Promise<SQSBatchResponse | object> => {
-  if ("selftest" in event) return event.probe ? qlooExec(event.probe.operation, event.probe.input).catch((e) => ({ error: e.code, message: e.message })) : selfTest(event.dummyKey);
+  if ("selftest" in event) {
+    if (event.probe) return qlooExec(event.probe.operation, event.probe.input).catch((e) => ({ error: e.code, message: e.message }));
+    if (event.agent) return runAgent(event.agent.location, event.agent.menu, { cache });
+    return selfTest(event.dummyKey);
+  }
   const batchItemFailures: SQSBatchResponse["batchItemFailures"] = [];
   for (const record of event.Records) {
     try {

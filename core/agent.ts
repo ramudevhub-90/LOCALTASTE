@@ -10,6 +10,8 @@ export interface Suggestion {
   kind: SuggestionKind;
   title: string;
   pitch: string;
+  // One sentence naming the Qloo signals behind it (Bedrock writer).
+  why?: string;
   // Ids of the TasteSignals that justify it ("why this?").
   evidence: string[];
 }

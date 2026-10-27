@@ -39,6 +39,8 @@ export interface TasteSignal {
   tags: string[];
   // Short Qloo description, when present.
   note?: string;
+  // Qloo entity UUID or tag URN (live data), so follow-up calls skip name resolution.
+  qlooId?: string;
   evidence: Evidence;
 }
 

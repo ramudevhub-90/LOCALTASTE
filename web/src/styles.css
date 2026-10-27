@@ -82,3 +82,5 @@ button.link { background: none; color: var(--accent); padding: 0; }
 .trace ol { padding-left: 1.25rem; }
 .trace li { margin: 0.35rem 0; overflow-wrap: anywhere; }
 .trace code { font-size: 0.8rem; }
+.why { margin: 0.25rem 0 0.5rem; font-size: 0.9rem; color: var(--muted); }
+.why::before { content: "Why it fits: "; font-weight: 600; color: var(--ink); }

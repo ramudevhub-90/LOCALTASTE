@@ -27,36 +27,45 @@ export function App() {
   }
 
   return (
-    <div className="page">
-      <header className="top">
-        <div className="brand">
-          <span className="logo">☕</span> Localtaste
+    <>
+      <header className="band">
+        <div className="band-inner">
+          <div className="brand">
+            <svg className="logo" viewBox="0 0 32 32" aria-hidden="true">
+              <path d="M16 2c-6 0-11 4.6-11 10.6C5 21 16 30 16 30s11-9 11-17.4C27 6.6 22 2 16 2z" fill="var(--saffron)" />
+              <path d="M11 11h10v3.5a5 5 0 0 1-10 0z" fill="var(--band)" />
+              <path d="M21 12h1.2a1.8 1.8 0 0 1 0 3.6H21" fill="none" stroke="var(--band)" strokeWidth="1.4" />
+            </svg>
+            Localtaste
+          </div>
+          <p className="tag">Neighbourhood taste research for independent cafés, powered by Qloo.</p>
         </div>
-        <p className="tag">Neighbourhood taste research for independent cafés, powered by Qloo.</p>
       </header>
 
-      <form className="card onboard" onSubmit={run}>
-        <h1>What does your neighbourhood love?</h1>
-        <label>
-          Café address or neighbourhood
-          <input value={location} onChange={(e) => setLocation(e.target.value)} list="areas" required />
-          <datalist id="areas">{areas.map((a) => <option key={a} value={a} />)}</datalist>
-        </label>
-        <label>
-          Current menu <span className="hint">(one item per line)</span>
-          <textarea value={menu} onChange={(e) => setMenu(e.target.value)} rows={6} />
-        </label>
-        <button disabled={!!step}>{step || "Get taste advice"}</button>
-        {error && <p className="error">{error}</p>}
-      </form>
+      <div className="page">
+        <form className="card onboard" onSubmit={run}>
+          <h1>What does your neighbourhood love?</h1>
+          <label>
+            Café address or neighbourhood
+            <input value={location} onChange={(e) => setLocation(e.target.value)} list="areas" required />
+            <datalist id="areas">{areas.map((a) => <option key={a} value={a} />)}</datalist>
+          </label>
+          <label>
+            Current menu <span className="hint">(one item per line)</span>
+            <textarea value={menu} onChange={(e) => setMenu(e.target.value)} rows={6} />
+          </label>
+          <button disabled={!!step}>{step || "Get taste advice"}</button>
+          {error && <p className="error">{error}</p>}
+        </form>
 
-      {result && <Results result={result} />}
-      {result && <Compare home={result.area} menu={menu} areas={areas} />}
+        {result && <Results result={result} />}
+        {result && <Compare home={result.area} menu={menu} areas={areas} />}
 
-      <footer className="foot">
-        Results describe aggregate neighbourhood affinities from Qloo, not any individual's preferences.
-      </footer>
-    </div>
+        <footer className="foot">
+          Results describe aggregate neighbourhood affinities from Qloo, not any individual's preferences.
+        </footer>
+      </div>
+    </>
   );
 }
 
@@ -73,7 +82,7 @@ function Results({ result }: { result: RunResult }) {
       <section className="card">
         <div className="row">
           <h2>Taste map · {result.area.label}</h2>
-          {result.area.source === "sample" ? <span className="pill warn">Sample data</span> : <span className="pill">Live Qloo</span>}
+          {result.area.source === "sample" ? <span className="pill warn">Sample data</span> : <span className="pill live">Live Qloo</span>}
         </div>
         <TasteMap area={result.area} />
       </section>

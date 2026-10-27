@@ -34,13 +34,13 @@ type SelfTest = {
   selftest: true;
   dummyKey?: string;
   probe?: { operation: QlooOperation; input: Record<string, unknown> };
-  agent?: { location: string; menu: string[] };
+  agent?: { location: string; menu: string[]; model?: string };
 };
 
 export const handler = async (event: SQSEvent | SelfTest): Promise<SQSBatchResponse | object> => {
   if ("selftest" in event) {
     if (event.probe) return qlooExec(event.probe.operation, event.probe.input).catch((e) => ({ error: e.code, message: e.message }));
-    if (event.agent) return runAgent(event.agent.location, event.agent.menu, { cache });
+    if (event.agent) return runAgent(event.agent.location, event.agent.menu, { cache, model: event.agent.model });
     return selfTest(event.dummyKey);
   }
   const batchItemFailures: SQSBatchResponse["batchItemFailures"] = [];

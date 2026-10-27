@@ -1,4 +1,4 @@
-// The Localtaste agent: a model on Amazon Bedrock (Amazon Nova Pro by default,
+// The Localtaste agent: a model on Amazon Bedrock (Amazon Nova 2 Lite by default,
 // via the model-neutral Converse API) decides which Qloo workflows to run for
 // this café, then submits suggestions that must cite the signals it was shown.
 // Any failure (no model access, bad output) falls back to the template writer.
@@ -28,7 +28,7 @@ import {
   toSignals,
 } from "./qloo/index.ts";
 
-export const MODEL = process.env.BEDROCK_MODEL_ID ?? "us.amazon.nova-pro-v1:0";
+export const MODEL = process.env.BEDROCK_MODEL_ID ?? "us.amazon.nova-2-lite-v1:0";
 const MAX_TURNS = 8;
 
 // Bedrock model access is per account. When it is denied, skip the model for
@@ -176,14 +176,14 @@ function findSignal(pool: Map<string, TasteSignal>, ref: unknown): TasteSignal |
 export async function runAgent(
   location: string,
   menu: string[],
-  opts: { cache?: TasteCache; onStep?: (text: string) => Promise<unknown> | void; useLlm?: boolean } = {},
+  opts: { cache?: TasteCache; onStep?: (text: string) => Promise<unknown> | void; useLlm?: boolean; model?: string } = {},
 ): Promise<AnalyzeResult> {
   const cache = opts.cache ?? memoryCache;
   const onStep = opts.onStep ?? (() => {});
   const area = await getAreaTaste(location, cache);
   if (opts.useLlm === false || !llmAvailable()) return analyze(area, menu);
   try {
-    return await agentLoop(area, location, menu, onStep);
+    return await agentLoop(area, location, menu, onStep, opts.model ?? MODEL);
   } catch (err) {
     noteAccessError(err);
     console.error("bedrock agent failed, using template", err);
@@ -196,6 +196,7 @@ async function agentLoop(
   location: string,
   menu: string[],
   onStep: (text: string) => Promise<unknown> | void,
+  model: string,
 ): Promise<AnalyzeResult> {
   const pool = new Map(area.signals.map((s) => [s.id, s]));
   const extra: TasteSignal[] = [];
@@ -287,7 +288,7 @@ async function agentLoop(
   for (let turn = 0; turn < MAX_TURNS; turn++) {
     const response = await bedrock().send(
       new ConverseCommand({
-        modelId: MODEL,
+        modelId: model,
         system: [{ text: SYSTEM }],
         messages,
         toolConfig: { tools },
@@ -417,6 +418,6 @@ async function agentLoop(
     ].filter(Boolean);
     if (short.length) return { ok: false, reason: `need ${short.join("; ")}` };
     trace.push({ tool: "submit_suggestions", input: {}, outcome: `${suggestions.length} suggestions` });
-    return { ok: true, result: { area: { ...area, signals: [...area.signals, ...extra] }, suggestions, writer: "bedrock", model: MODEL, summary: typeof out.summary === "string" ? out.summary : undefined, trace } };
+    return { ok: true, result: { area: { ...area, signals: [...area.signals, ...extra] }, suggestions, writer: "bedrock", model, summary: typeof out.summary === "string" ? out.summary : undefined, trace } };
   }
 }

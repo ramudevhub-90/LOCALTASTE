@@ -18,11 +18,13 @@ export const analyzeWorker = defineFunction({
     // matching trust value before it sends a key to a custom base URL.
     QLOO_BASE_URL: "https://hackathon.api.qloo.com",
     QLOO_TRUSTED_BASE_URL: "https://hackathon.api.qloo.com",
-    // Amazon Nova Pro on Bedrock (Converse API), no API key. This account has
+    // Amazon Nova 2 Lite on Bedrock (Converse API), no API key. Chosen over
+    // Nova Pro (generic dishes, fewer Qloo calls) and Llama 4 Maverick (did not
+    // call tools) in a side-by-side run on 3 areas. This account has
     // almost no Bedrock quota, so the worker assumes an invoke-only role in the
     // account that has model access (backend.ts, LOCALTASTE_BEDROCK_ROLE_ARN).
     LLM_PROVIDER: "bedrock",
-    BEDROCK_MODEL_ID: "us.amazon.nova-pro-v1:0",
+    BEDROCK_MODEL_ID: "us.amazon.nova-2-lite-v1:0",
     BEDROCK_REGION: "us-east-1",
     // The Lambda filesystem is read-only except /tmp.
     HOME: "/tmp",

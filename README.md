@@ -17,7 +17,7 @@ Results are aggregate neighbourhood affinities, never claims about individuals.
 
 ## How the agent works
 
-The worker runs a tool-use agent loop on Amazon Bedrock (`core/agent-bedrock.ts`, Amazon Nova Pro through the model-neutral Converse API, IAM roles only, no API key) with Qloo workflows as tools:
+The worker runs a tool-use agent loop on Amazon Bedrock (`core/agent-bedrock.ts`, Amazon Nova 2 Lite through the model-neutral Converse API, IAM roles only, no API key) with Qloo workflows as tools:
 
 1. The worker maps the area with Qloo: `recommend` with the city as `signal_location` for artists, TV shows and
    brands; the neighbourhood's own favoured venues (`filter_location`); and `entity_tags` on those venues for food
@@ -42,7 +42,7 @@ Browser (React) ──startAnalysis mutation──► AppSync ──► start-an
       ▲                                                                            │
       └──── onUpdate subscription (progress + result) ◄── AppSync ◄── analyze-worker Lambda
                                                                        ├─ Qloo (@qloo/qloo-harness, in-process)
-                                                                       ├─ Bedrock: Amazon Nova Pro (tool-use agent loop)
+                                                                       ├─ Bedrock: Amazon Nova 2 Lite (tool-use agent loop)
                                                                        └─ DynamoDB cache of Qloo responses
 ```
 

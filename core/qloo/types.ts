@@ -1,9 +1,11 @@
 // Shapes the rest of the app depends on. Both the sample and live Qloo
 // sources must return these, so swapping sources never touches the agent or UI.
 
-export type Domain = "dining" | "music" | "film_tv" | "brand";
+// "vibe" holds Qloo audience/ambience tags for the people who favour the
+// area's venues (live data only).
+export type Domain = "dining" | "music" | "film_tv" | "brand" | "vibe";
 
-export const DOMAINS: readonly Domain[] = ["dining", "music", "film_tv", "brand"];
+export const DOMAINS: readonly Domain[] = ["dining", "music", "film_tv", "brand", "vibe"];
 
 // The Qloo workflow call that produced a signal: shown in the UI as "why this?".
 export type QlooOperation =

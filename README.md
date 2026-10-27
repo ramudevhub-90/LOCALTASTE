@@ -17,7 +17,7 @@ Results are aggregate neighbourhood affinities, never claims about individuals.
 
 ## How the agent works
 
-The worker runs a Claude tool-use loop (`core/agent-claude.ts`, model `claude-opus-5-5`) with Qloo workflows as tools:
+The worker runs a Claude tool-use loop on Amazon Bedrock (`core/agent-claude.ts`, Claude Sonnet 4.6 via the Lambda role, no API key) with Qloo workflows as tools:
 
 1. `get_area_taste` maps the neighbourhood with Qloo `recommend` (`signal_location`) for artists, TV shows and brands,
    plus the favoured venues and the concepts (`entity_tags`) that characterize them.
@@ -63,12 +63,14 @@ npm run dev                                                  # http://localhost:
 Deploy the front end to Amplify Hosting: `AWS_PROFILE=<profile> scripts/deploy-web.sh`.
 Live demo: https://localtaste.revenuerush.in (no sign-up needed).
 
-The Qloo and Anthropic keys are Amplify secrets (stored in SSM), never in the repo or the browser:
+The Qloo key is an Amplify secret (stored in SSM), never in the repo or the browser:
 
 ```sh
 npx ampx sandbox secret set QLOO_API_KEY --identifier demo
-npx ampx sandbox secret set ANTHROPIC_API_KEY --identifier demo
 ```
+
+Claude runs on Amazon Bedrock with the worker's IAM role. The account needs access to Claude Sonnet 4.6
+(submit Anthropic's use-case form once in the Bedrock console); without it the template writer is used.
 
 ## License
 

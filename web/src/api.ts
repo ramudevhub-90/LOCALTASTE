@@ -16,6 +16,7 @@ export const DOMAIN_LABEL: Record<Domain, string> = {
   music: "Music",
   film_tv: "Film & TV",
   brand: "Brands",
+  vibe: "Crowd & vibe",
 };
 
 export const DEMO_AREAS = [

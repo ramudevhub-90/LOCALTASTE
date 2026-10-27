@@ -1,4 +1,3 @@
-import Anthropic from "@anthropic-ai/sdk";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, GetCommand, PutCommand } from "@aws-sdk/lib-dynamodb";
 import { getAmplifyDataClientConfig } from "@aws-amplify/backend/function/runtime";
@@ -6,8 +5,8 @@ import { env } from "$amplify/env/analyze-worker";
 import { Amplify } from "aws-amplify";
 import { generateClient } from "aws-amplify/data";
 import type { SQSBatchResponse, SQSEvent } from "aws-lambda";
-import { claudeAvailable, runAgent } from "../../../core/agent-claude.ts";
-import { QlooError, type TasteCache, compareAreas, qlooExec, qlooMode } from "../../../core/qloo/index.ts";
+import { MODEL, bedrock, claudeAvailable, runAgent } from "../../../core/agent-claude.ts";
+import { QlooError, type QlooOperation, type TasteCache, compareAreas, qlooExec, qlooMode } from "../../../core/qloo/index.ts";
 import type { Schema } from "../../data/resource";
 
 const { resourceConfig, libraryOptions } = await getAmplifyDataClientConfig(env);
@@ -28,10 +27,11 @@ const cache: TasteCache = {
 
 // `dummyKey` lets the self-test prove the harness reaches Qloo (expecting a
 // QLOO_AUTH 401) before the real key exists. It is never a real credential.
-type SelfTest = { selftest: true; dummyKey?: string };
+// `probe` runs one Qloo workflow and returns the raw envelope, for tuning.
+type SelfTest = { selftest: true; dummyKey?: string; probe?: { operation: QlooOperation; input: Record<string, unknown> } };
 
-export const handler = async (event: SQSEvent | SelfTest): Promise<SQSBatchResponse | Record<string, unknown>> => {
-  if ("selftest" in event) return selfTest(event.dummyKey);
+export const handler = async (event: SQSEvent | SelfTest): Promise<SQSBatchResponse | object> => {
+  if ("selftest" in event) return event.probe ? qlooExec(event.probe.operation, event.probe.input).catch((e) => ({ error: e.code, message: e.message })) : selfTest(event.dummyKey);
   const batchItemFailures: SQSBatchResponse["batchItemFailures"] = [];
   for (const record of event.Records) {
     try {
@@ -82,13 +82,12 @@ async function selfTest(dummyKey?: string) {
   } catch (err) {
     out.qloo = { ok: false, code: (err as QlooError).code, message: (err as Error).message };
   }
-  out.claude = { available: claudeAvailable(), model: process.env.CLAUDE_MODEL };
+  out.claude = { available: claudeAvailable(), model: MODEL };
   if (claudeAvailable()) {
     try {
-      const res = await new Anthropic().messages.create({
-        model: process.env.CLAUDE_MODEL ?? "claude-opus-5-5",
+      const res = await bedrock().messages.create({
+        model: MODEL,
         max_tokens: 64,
-        output_config: { effort: "low" },
         messages: [{ role: "user", content: "Reply with the single word: ready" }],
       });
       const text = res.content.find((b) => b.type === "text");

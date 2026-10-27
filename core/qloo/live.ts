@@ -28,7 +28,7 @@ export interface QlooItem {
   subtype?: string;
   popularity?: number;
   affinity?: number;
-  properties?: { short_description?: string; description?: string };
+  properties?: { short_description?: string; description?: string; address?: string };
 }
 
 export async function qlooExec(operation: QlooOperation, input: Record<string, unknown>): Promise<QlooResult> {
@@ -51,7 +51,7 @@ export function resultItems(result: QlooResult): QlooItem[] {
   return (list as QlooItem[]).filter((x) => x && typeof x.name === "string");
 }
 
-export const DOMAIN_TARGET: Record<Domain, string> = { dining: "place", music: "artist", film_tv: "tv_show", brand: "brand" };
+export const DOMAIN_TARGET: Partial<Record<Domain, string>> = { dining: "place", music: "artist", film_tv: "tv_show", brand: "brand" };
 
 export function domainOf(targetType: string): Domain {
   const t = targetType.replace("urn:entity:", "");
@@ -65,6 +65,7 @@ const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(
 
 // Turns harness results into TasteSignals. Qloo affinity is relative to the
 // query; popularity is global, so low popularity + high affinity = local quirk.
+// Tags keep the Qloo tag kind, e.g. "audience" from urn:tag:audience:qloo.
 export function toSignals(items: QlooItem[], domain: Domain, evidence: Evidence, idPrefix: string = domain): TasteSignal[] {
   return items.map((item) => ({
     id: `${idPrefix}:${slug(item.name!)}`,
@@ -72,65 +73,57 @@ export function toSignals(items: QlooItem[], domain: Domain, evidence: Evidence,
     domain,
     affinity: Math.round((item.affinity ?? 0) * 100) / 100,
     ...(typeof item.popularity === "number" ? { popularity: Math.round(item.popularity * 100) / 100 } : {}),
-    tags: [item.subtype, item.type].filter((t): t is string => !!t).map((t) => t.replace(/^urn:(tag|entity):/, "").replace(/[:_]/g, " ")),
+    tags: item.type?.startsWith("urn:tag:") ? [item.type.split(":")[2]] : [],
     ...(item.properties?.short_description ? { note: item.properties.short_description } : {}),
     evidence,
   }));
 }
 
-// Qloo geocodes `signal_location` itself; a street-level address can miss, so
-// fall back to the trailing "Area, City" part.
-function locationCandidates(location: string): string[] {
+// Qloo resolves cities as an audience (`signal_location`) but not
+// neighbourhoods; a neighbourhood works as a geographic filter written as
+// "Area, City". So: city-level audience taste for media and brands, and the
+// neighbourhood's own venues (plus who likes them) for the local flavour.
+export function splitLocation(location: string): { city: string; area: string } {
   const parts = location.split(",").map((p) => p.trim()).filter(Boolean);
-  const out = [location.trim()];
-  if (parts.length > 2) out.push(parts.slice(-2).join(", "));
-  return out;
+  const city = parts.at(-1) ?? location.trim();
+  return { city, area: parts.length >= 2 ? parts.slice(-2).join(", ") : city };
 }
 
-async function recommendIn(location: string, targetType: string, extra: Record<string, unknown> = {}) {
-  for (const loc of locationCandidates(location)) {
-    const input = { target_type: targetType, signal_location: loc, limit: 8, explain: false, ...extra };
-    const result = await qlooExec("recommend", input);
-    const items = resultItems(result);
-    if (items.length) return { loc, input, items };
-  }
-  return undefined;
-}
+// Qloo audience/ambience tags that describe a crowd; cuisines and venue genres
+// describe food. Media genres and keywords (from fans' other tastes) are noise here.
+const VIBE_TAG = /:(audience|ambience|good_for|style|influencer_appeal|cost_description):/;
+const FOOD_TAG = /:(genre|cuisine|category):place|:cuisine:/;
 
 export const liveSource: QlooSource = {
   mode: "live",
   async areaTaste(location: string): Promise<AreaTaste> {
+    const { city, area } = splitLocation(location);
     const signals: TasteSignal[] = [];
-    let label = location.trim();
 
-    // Music, film/TV and brands: what the area's audience over-indexes on.
     const media = await Promise.all(
-      (["music", "film_tv", "brand"] as const).map(async (domain) => ({ domain, hit: await recommendIn(location, DOMAIN_TARGET[domain]) })),
+      (["music", "film_tv", "brand"] as const).map(async (domain) => {
+        const input = { target_type: DOMAIN_TARGET[domain]!, signal_location: city, limit: 8, explain: false };
+        return { domain, input, items: resultItems(await qlooExec("recommend", input)) };
+      }),
     );
-    for (const { domain, hit } of media) {
-      if (!hit) continue;
-      label = hit.loc;
-      signals.push(...toSignals(hit.items, domain, { operation: "recommend", input: hit.input, source: "live" }));
-    }
+    for (const { domain, input, items } of media) signals.push(...toSignals(items, domain, { operation: "recommend", input, source: "live" }));
 
-    // Dining: the venues the area favours, then the concepts (cuisines, styles)
-    // that characterize them, which is what a menu can act on.
-    const places = await recommendIn(location, "place", { filter_location: locationCandidates(location).at(-1) });
-    if (places) {
-      label = places.loc;
-      const ids = places.items.map((p) => p.entity_id).filter((id): id is string => !!id).slice(0, 6);
-      if (ids.length) {
-        const input = { entities: ids, entity_type: "place", limit: 12 };
-        const tags = resultItems(await qlooExec("entity_tags", input));
-        signals.push(...toSignals(tags, "dining", { operation: "entity_tags", input: { ...input, entities: places.items.slice(0, 6).map((p) => p.name) }, source: "live" }));
-      }
-      signals.push(
-        ...toSignals(places.items.slice(0, 5), "dining", { operation: "recommend", input: places.input, source: "live" }, "venue").map((s) => ({ ...s, tags: [...s.tags, "venue"] })),
-      );
+    const placeInput = { target_type: "place", signal_location: city, filter_location: area, limit: 15, explain: false };
+    const venues = resultItems(await qlooExec("recommend", placeInput)).filter((v) => !/hotel|oberoi|taj |marriott|mall/i.test(v.name!));
+    const local = venues.filter((v) => !area.includes(",") || (v.properties?.address ?? "").toLowerCase().includes(area.split(",")[0].toLowerCase()));
+    const picked = (local.length >= 4 ? local : venues).slice(0, 8);
+    signals.push(...toSignals(picked, "dining", { operation: "recommend", input: placeInput, source: "live" }, "venue").map((s) => ({ ...s, tags: ["venue"] })));
+
+    const ids = picked.map((v) => v.entity_id).filter((id): id is string => !!id);
+    if (ids.length) {
+      const input = { entities: ids, entity_type: "place", limit: 20 };
+      const tags = resultItems(await qlooExec("entity_tags", input));
+      const evidence = { operation: "entity_tags" as const, input: { ...input, entities: picked.map((v) => v.name) }, source: "live" as const };
+      signals.push(...toSignals(tags.filter((t) => FOOD_TAG.test(t.type ?? "")), "dining", evidence, "food"));
+      signals.push(...toSignals(tags.filter((t) => VIBE_TAG.test(t.type ?? "")), "vibe", evidence));
     }
 
     if (!signals.length) throw new QlooError("QLOO_EMPTY", `Qloo had no taste data for "${location}". Try a neighbourhood and city, e.g. "Indiranagar, Bengaluru".`);
-    const city = label.split(",").at(-1)?.trim() ?? label;
-    return { query: location, label, city, source: "live", signals };
+    return { query: location, label: area, city, source: "live", signals };
   },
 };

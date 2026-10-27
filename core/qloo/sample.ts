@@ -5,9 +5,10 @@
 import type { AreaTaste, Domain, QlooSource, TasteSignal } from "./types.ts";
 
 type Row = [name: string, affinity: number, lift: number, tags: string[]];
-type Profile = { label: string; aliases: string[] } & Record<Domain, Row[]>;
+type SampleDomain = Exclude<Domain, "vibe">;
+type Profile = { label: string; aliases: string[] } & Record<SampleDomain, Row[]>;
 
-const TARGET_TYPE: Record<Domain, string> = {
+const TARGET_TYPE: Record<SampleDomain, string> = {
   dining: "urn:entity:place",
   music: "urn:entity:artist",
   film_tv: "urn:entity:tv_show",
@@ -213,7 +214,7 @@ function blendProfile(location: string): Profile {
   for (const ch of location) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
   const p1 = PROFILES[keys[h % keys.length]];
   const p2 = PROFILES[keys[(h >>> 8) % keys.length]];
-  const mix = (d: Domain): Row[] => {
+  const mix = (d: SampleDomain): Row[] => {
     const seen = new Set<string>();
     return [...p1[d].slice(0, 3), ...p2[d].slice(0, 3)]
       .filter(([n]) => !seen.has(n) && seen.add(n))
@@ -227,7 +228,7 @@ export const sampleSource: QlooSource = {
   async areaTaste(location: string): Promise<AreaTaste> {
     const profile = matchProfile(location) ?? blendProfile(location);
     const signals: TasteSignal[] = [];
-    for (const domain of Object.keys(TARGET_TYPE) as Domain[]) {
+    for (const domain of Object.keys(TARGET_TYPE) as SampleDomain[]) {
       for (const [name, affinity, lift, tags] of profile[domain]) {
         signals.push({
           id: `${domain}:${slug(name)}`,

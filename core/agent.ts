@@ -44,11 +44,13 @@ export function analyze(area: AreaTaste, menu: string[]): AnalyzeResult {
   const music = ranked(area, "music");
   const film = ranked(area, "film_tv");
   const suggestions: Suggestion[] = [];
+  // Live Qloo resolves media taste at city level, so say so honestly.
+  const mediaScope = area.source === "live" ? `${area.city} audiences over-index on` : `${area.label} over-indexes on`;
 
   for (const s of dining.filter((d) => !onMenu(menu, d)).slice(0, 3)) {
     suggestions.push({
       kind: "menu",
-      title: `Add a ${s.name.toLowerCase()} item`,
+      title: `Try a ${s.name.toLowerCase()} special`,
       pitch: `Affinity for ${s.name.toLowerCase()} in ${area.label} runs ${pct(s.lift)}, and nothing on your current menu covers it yet.`,
       evidence: [s.id],
     });
@@ -59,7 +61,7 @@ export function analyze(area: AreaTaste, menu: string[]): AnalyzeResult {
     suggestions.push({
       kind: "playlist",
       title: `In-store playlist: ${picks.map((m) => m.name).slice(0, 2).join(" × ")}`,
-      pitch: `Build a playlist around ${picks.map((m) => m.name).join(", ")}: the artists this neighbourhood over-indexes on.`,
+      pitch: `Build a playlist around ${picks.map((m) => m.name).join(", ")}: the artists ${mediaScope}.`,
       evidence: picks.map((m) => m.id),
     });
   }
@@ -70,7 +72,7 @@ export function analyze(area: AreaTaste, menu: string[]): AnalyzeResult {
     suggestions.push({
       kind: "theme_night",
       title: `${show.name} night with ${food.name.toLowerCase()}`,
-      pitch: `${area.label} over-indexes on ${show.name} (${pct(show.lift)}). Pair a watch-party evening with a ${food.name.toLowerCase()} special.`,
+      pitch: `${mediaScope} ${show.name} (${pct(show.lift)}). Pair a watch-party evening with a ${food.name.toLowerCase()} special.`,
       evidence: [show.id, food.id],
     });
   }

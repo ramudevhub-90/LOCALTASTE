@@ -168,6 +168,21 @@ const ACTIONS = {
     await page.getByText("What does your neighbourhood love?").waitFor();
     await sleep(1200);
   },
+  async address(page) {
+    const box = page.getByRole("combobox").first();
+    await box.click();
+    await page.keyboard.press(process.platform === "darwin" ? "Meta+A" : "Control+A");
+    await page.keyboard.press("Backspace");
+    await box.pressSequentially("chikkaban", { delay: 90 });
+    await page.locator(".addr-list li button").nth(1).waitFor({ timeout: 15_000 });
+    await sleep(2600);
+    await page.keyboard.press(process.platform === "darwin" ? "Meta+A" : "Control+A");
+    await page.keyboard.press("Backspace");
+    await box.pressSequentially("Indiranagar", { delay: 90 });
+    await page.locator(".addr-list li button", { hasText: "Indiranagar, Bengaluru" }).first().waitFor({ timeout: 15_000 });
+    await sleep(1400);
+    await page.locator(".addr-list li button", { hasText: "Indiranagar, Bengaluru" }).first().click();
+  },
   async building(page) {
     await press(page, "form.onboard button");
     await sleep(600);

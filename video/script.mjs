@@ -28,7 +28,11 @@ export const INTRO = [
 export const DEMO = [
   {
     id: "home",
-    text: "Here's the live app. There's no sign-up. It's pre-filled with a café in Indiranagar, Bengaluru: its address, its menu, and its name.",
+    text: "Here's the live app. There's no sign-up. An owner starts with the café's address.",
+  },
+  {
+    id: "address",
+    text: "Type any address, like on a map: a street, a small locality, or a town in the US. Suggestions appear as you type. We'll pick Indiranagar in Bengaluru, with the café's menu and its name already filled in.",
   },
   {
     id: "building",

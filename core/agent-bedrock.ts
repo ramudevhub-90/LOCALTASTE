@@ -24,7 +24,6 @@ import {
   qlooMode,
   isLocalVenue,
   resultItems,
-  splitLocation,
   toSignals,
 } from "./qloo/index.ts";
 
@@ -226,7 +225,8 @@ async function agentLoop(
       const n = ++calls;
       // Models often pass signal ids or the neighbourhood; Qloo needs names and
       // resolves only cities as an audience (neighbourhoods work as a place filter).
-      const { city, area: hood } = splitLocation(location);
+      const city = area.city;
+      const hood = area.placeFilter ?? area.label;
       // Known signals go in by Qloo id (entities as signals, tags as signal_tags),
       // which Qloo accepts without the name resolution that often stalls.
       const byRef = (x: unknown) => findSignal(pool, x);
@@ -355,7 +355,7 @@ async function agentLoop(
 
   // One true sentence per piece of evidence, from where the signal came from.
   function groundedWhy(sigs: TasteSignal[]): string {
-    const { city } = splitLocation(location);
+    const city = area.city;
     const hood = area.label.split(",")[0].trim();
     const byQlooId = new Map([...pool.values()].filter((s) => s.qlooId).map((s) => [s.qlooId!, s.name]));
     const facts: string[] = [];

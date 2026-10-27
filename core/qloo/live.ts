@@ -4,6 +4,7 @@
 // The key only ever lives in the Lambda environment (Amplify secret).
 
 import { createDirectQlooWorkflowExecutorFromEnvironment } from "@qloo/qloo-harness";
+import { type GeoPlace, addressHas, geocode } from "../geo.ts";
 import type { AreaTaste, Domain, Evidence, QlooOperation, QlooSource, TasteSignal } from "./types.ts";
 import { QlooError } from "./types.ts";
 
@@ -28,7 +29,7 @@ export interface QlooItem {
   subtype?: string;
   popularity?: number;
   affinity?: number;
-  properties?: { short_description?: string; description?: string; address?: string };
+  properties?: { short_description?: string; description?: string; address?: string; image?: { url?: string }; price_level?: number; business_rating?: number };
 }
 
 export async function qlooExec(operation: QlooOperation, input: Record<string, unknown>): Promise<QlooResult> {
@@ -76,6 +77,8 @@ export function toSignals(items: QlooItem[], domain: Domain, evidence: Evidence,
     tags: item.type?.startsWith("urn:tag:") ? [item.type.split(":")[2]] : [],
     ...(item.properties?.short_description ? { note: item.properties.short_description } : {}),
     ...((item.entity_id ?? item.id) ? { qlooId: item.entity_id ?? item.id } : {}),
+    ...(item.properties?.image?.url ? { image: item.properties.image.url } : {}),
+    ...(item.properties?.address ? { address: item.properties.address } : {}),
     evidence,
   }));
 }
@@ -99,10 +102,35 @@ const FOOD_TAG = /:(genre|cuisine|category):place|:cuisine:/;
 const NOT_LOCAL = /hotel|oberoi|\btaj\b|marriott|hyatt|hilton|sheraton|conrad|orchid|mall|burger king|mcdonald|kfc|domino|pizza hut|subway|starbucks|stadium|airport/i;
 export const isLocalVenue = (name: string) => !NOT_LOCAL.test(name);
 
+// The café's place: our own geocode when available (live), else the text split.
+export async function resolvePlace(location: string): Promise<{ hood: string; city: string; filter: string; place?: GeoPlace }> {
+  const place = await geocode(location).catch((err) => (console.warn("geocode failed", err), undefined));
+  const split = splitLocation(location);
+  const city = place?.city ?? split.city;
+  const hood = place?.district ?? split.area.split(",")[0].trim();
+  return { hood, city, filter: [hood, city, place?.region].filter(Boolean).join(", "), place };
+}
+
+// Qloo's own location filter can land in the wrong city, so keep only venues
+// whose address names the city (or the café's postcode); if too few survive,
+// take the city's favourites that sit in the neighbourhood instead.
+async function localVenues(hood: string, city: string, filter: string, place?: GeoPlace) {
+  const inCity = (v: QlooItem) => addressHas(v.properties?.address, city) || addressHas(v.properties?.address, place?.postcode);
+  const inHood = (v: QlooItem) => addressHas(v.properties?.address, hood) || addressHas(v.properties?.address, place?.postcode);
+  const input = { target_type: "place", signal_location: city, filter_location: filter, limit: 15, explain: false };
+  let venues = resultItems(await qlooExec("recommend", input)).filter((v) => isLocalVenue(v.name!) && inCity(v));
+  if (venues.length >= 4) return { venues, input };
+  const wide = { target_type: "place", signal_location: city, filter_location: [city, place?.region].filter(Boolean).join(", "), limit: 20, explain: false };
+  const near = resultItems(await qlooExec("recommend", wide)).filter((v) => isLocalVenue(v.name!) && inHood(v));
+  const seen = new Set(venues.map((v) => v.entity_id));
+  venues = [...venues, ...near.filter((v) => !seen.has(v.entity_id))];
+  return { venues, input: venues.length > 0 && near.length > 0 ? wide : input };
+}
+
 export const liveSource: QlooSource = {
   mode: "live",
   async areaTaste(location: string): Promise<AreaTaste> {
-    const { city, area } = splitLocation(location);
+    const { hood, city, filter, place } = await resolvePlace(location);
     const signals: TasteSignal[] = [];
 
     const media = await Promise.all(
@@ -113,10 +141,8 @@ export const liveSource: QlooSource = {
     );
     for (const { domain, input, items } of media) signals.push(...toSignals(items, domain, { operation: "recommend", input, source: "live" }));
 
-    const placeInput = { target_type: "place", signal_location: city, filter_location: area, limit: 15, explain: false };
-    const venues = resultItems(await qlooExec("recommend", placeInput)).filter((v) => isLocalVenue(v.name!));
-    const local = venues.filter((v) => !area.includes(",") || (v.properties?.address ?? "").toLowerCase().includes(area.split(",")[0].toLowerCase()));
-    const picked = (local.length >= 4 ? local : venues).slice(0, 8);
+    const { venues, input: placeInput } = await localVenues(hood, city, filter, place);
+    const picked = venues.slice(0, 8);
     signals.push(...toSignals(picked, "dining", { operation: "recommend", input: placeInput, source: "live" }, "venue").map((s) => ({ ...s, tags: ["venue"] })));
 
     const ids = picked.map((v) => v.entity_id).filter((id): id is string => !!id);
@@ -128,7 +154,15 @@ export const liveSource: QlooSource = {
       signals.push(...toSignals(tags.filter((t) => VIBE_TAG.test(t.type ?? "")), "vibe", evidence));
     }
 
-    if (!signals.length) throw new QlooError("QLOO_EMPTY", `Qloo had no taste data for "${location}". Try a neighbourhood and city, e.g. "Indiranagar, Bengaluru".`);
-    return { query: location, label: area, city, source: "live", signals };
+    if (!signals.length) throw new QlooError("QLOO_EMPTY", `Qloo had no taste data for "${location}". Try a neighbourhood and city, e.g. "Williamsburg, Brooklyn".`);
+    return {
+      query: location,
+      label: `${hood}, ${city}`,
+      city,
+      source: "live",
+      signals,
+      placeFilter: filter,
+      ...(place ? { geo: { lat: place.lat, lon: place.lon, country: place.country, postcode: place.postcode } } : {}),
+    };
   },
 };

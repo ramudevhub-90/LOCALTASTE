@@ -52,3 +52,12 @@ if (bedrockRoleArn) {
     }),
   );
 }
+
+// Amazon Location geocoding: the café's address → neighbourhood and city, and
+// map points from Qloo heatmaps → neighbourhood names.
+worker.addToRolePolicy(
+  new PolicyStatement({
+    actions: ["geo-places:Geocode", "geo-places:ReverseGeocode"],
+    resources: [`arn:aws:geo-places:${stack.region}::provider/default`],
+  }),
+);

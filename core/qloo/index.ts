@@ -6,7 +6,7 @@ import type { AreaComparison, AreaTaste, QlooSource, TasteSignal } from "./types
 
 export * from "./types.ts";
 export { SAMPLE_AREAS } from "./sample.ts";
-export { DOMAIN_TARGET, domainOf, isLocalVenue, qlooExec, resultItems, splitLocation, toSignals, type QlooItem, type QlooResult } from "./live.ts";
+export { DOMAIN_TARGET, domainOf, isLocalVenue, qlooExec, resolvePlace, resultItems, splitLocation, toSignals, type QlooItem, type QlooResult } from "./live.ts";
 
 // Where Qloo responses are cached to protect the event quota. Lambda passes a
 // DynamoDB-backed cache; the default is per-process memory.
@@ -39,7 +39,7 @@ export const qlooMode = () => source().mode;
 
 export async function getAreaTaste(location: string, cache: TasteCache = memoryCache): Promise<AreaTaste> {
   const src = source();
-  const key = `area:v2:${src.mode}:${location.trim().toLowerCase()}`;
+  const key = `area:v3:${src.mode}:${location.trim().toLowerCase()}`;
   const hit = await cache.get(key);
   if (hit) return hit;
   const value = await src.areaTaste(location);

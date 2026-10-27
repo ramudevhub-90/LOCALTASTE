@@ -7,7 +7,7 @@ import { generateClient } from "aws-amplify/data";
 import type { SQSBatchResponse, SQSEvent } from "aws-lambda";
 import { ConverseCommand } from "@aws-sdk/client-bedrock-runtime";
 import { MODEL, bedrock, llmAvailable, runAgent } from "../../../core/agent-bedrock.ts";
-import { QlooError, type QlooOperation, type TasteCache, compareAreas, qlooExec, qlooMode } from "../../../core/qloo/index.ts";
+import { QlooError, type QlooOperation, type TasteCache, compareAreas, getAreaTaste, qlooExec, qlooMode } from "../../../core/qloo/index.ts";
 import type { Schema } from "../../data/resource";
 
 const { resourceConfig, libraryOptions } = await getAmplifyDataClientConfig(env);
@@ -35,11 +35,13 @@ type SelfTest = {
   dummyKey?: string;
   probe?: { operation: QlooOperation; input: Record<string, unknown> };
   agent?: { location: string; menu: string[]; model?: string };
+  area?: string;
 };
 
 export const handler = async (event: SQSEvent | SelfTest): Promise<SQSBatchResponse | object> => {
   if ("selftest" in event) {
     if (event.probe) return qlooExec(event.probe.operation, event.probe.input).catch((e) => ({ error: e.code, message: e.message }));
+    if (event.area) return getAreaTaste(event.area, cache);
     if (event.agent) return runAgent(event.agent.location, event.agent.menu, { cache, model: event.agent.model });
     return selfTest(event.dummyKey);
   }

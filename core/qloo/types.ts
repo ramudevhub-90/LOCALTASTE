@@ -41,6 +41,9 @@ export interface TasteSignal {
   note?: string;
   // Qloo entity UUID or tag URN (live data), so follow-up calls skip name resolution.
   qlooId?: string;
+  // Venue details from Qloo (live places).
+  image?: string;
+  address?: string;
   evidence: Evidence;
 }
 
@@ -50,6 +53,10 @@ export interface AreaTaste {
   city: string;
   source: "sample" | "live";
   signals: TasteSignal[];
+  // Qloo filter_location for places in this neighbourhood (live).
+  placeFilter?: string;
+  // Geocoded centre of the café's area (live).
+  geo?: { lat: number; lon: number; country?: string; postcode?: string };
 }
 
 export interface AreaComparison {

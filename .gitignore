@@ -9,3 +9,5 @@ web/dist/
 .amplify/
 amplify_outputs*
 amplifyconfiguration*
+video/node_modules/
+video/out/

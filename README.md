@@ -1,83 +1,96 @@
 # Localtaste
 
-A taste advisor for independent cafés and restaurants that can't afford market research.
+**Neighbourhood taste research for independent cafés, powered by Qloo.**
 
-Enter your café's address and current menu. Localtaste's agent asks [Qloo](https://qloo.com) what the
-neighbourhood over-indexes on across food, music, film/TV and brands, then suggests:
+Chains pay for market research before they open or change a menu. The independent café on the corner guesses.
+Localtaste gives that owner the same kind of insight in 30 seconds: enter the café's address and menu, and an agent
+uses [Qloo](https://qloo.com)'s taste graph to work out what the neighbourhood loves, then turns it into a plan they
+can run this month: dishes to add, a playlist, theme nights, and where they stand against the local favourites.
 
-- **Menu additions** the area likes that your menu doesn't cover yet
-- **An in-store playlist** built from the artists the area favours
-- **Theme nights**, e.g. "this area over-indexes on K-drama fans, so try a Korean street-food Friday"
-- **An area comparison** for a competitor's neighbourhood or a second branch
+**Live demo: https://localtaste.revenuerush.in** (no sign-up; the form is pre-filled, just press *Get taste advice*).
 
-Every suggestion has a **Why this?** link showing the Qloo signals and the exact workflow call behind it.
-Results are aggregate neighbourhood affinities, never claims about individuals.
+> Built for the [Qloo Agentic Hackathon](https://qloo.devpost.com). Licensed [MIT](LICENSE).
 
-> Built for the [Qloo Agentic Hackathon](https://qloo.devpost.com).
+![Taste map for Indiranagar, Bengaluru](docs/screenshots/02-taste-map.png)
+
+## What an owner gets
+
+| | What it shows | Qloo behind it |
+|---|---|---|
+| **Taste map** | The neighbourhood's favourite venues (with Qloo's photos and descriptions), the food concepts and crowd "vibe" they share, and the city's favourite artists, shows and brands | `recommend` with `signal_location` / `filter_location`, `entity_tags` |
+| **Suggestions** | 3 menu ideas, an in-store playlist (with Spotify links) and 2 theme nights, each with a **Why it fits** line and a **Why this?** panel showing the exact Qloo calls | the agent's own `recommend` and `find_tags` calls |
+| **Your café vs the neighbourhood** | Where your café ranks among the local favourites for fit with the city's taste, and how your crowd differs from the area's | `rank`, `audience_demographics` |
+| **Who the crowd is** | Age and gender skew of the people who favour the area's venues | `audience_demographics` |
+| **Ask the agent** | Follow-up questions: *Why not pizza? Ideas under ₹150 a plate? What works for weekday mornings?* | the same tools, plus Qloo's venue descriptions |
+| **Next branch** | The parts of the city where your neighbourhood's favourites are also popular | `where_popular` heatmaps + Amazon Location reverse geocoding |
+| **Competitor check** | A rival's standing, the audience traits it shares with you, and its crowd next to the area's | `describe`, `rank`, `compare_audiences`, `audience_demographics` |
+| **Act on it** | A 4-week calendar file (theme nights on Fridays, menu launches on Mondays), copy as text, print | — |
+
+It works anywhere Qloo has data: try *Williamsburg, Brooklyn*, *Mission District, San Francisco*, *Shoreditch, London*
+or *Silver Lake, Los Angeles*. Results are aggregate neighbourhood affinities, never claims about individuals.
+
+| Your café and the crowd | Suggestions with reasons |
+|---|---|
+| ![Your café vs the neighbourhood](docs/screenshots/03-your-cafe-and-crowd.png) | ![Suggestions](docs/screenshots/04-suggestions.png) |
+| **Ask the agent** | **Next branch and competitor** |
+| ![Ask the agent](docs/screenshots/06-ask-the-agent.png) | ![Branch finder and competitor check](docs/screenshots/07-branch-and-competitor.png) |
 
 ## How the agent works
 
-The worker runs a tool-use agent loop on Amazon Bedrock (`core/agent-bedrock.ts`, Amazon Nova 2 Lite through the model-neutral Converse API, IAM roles only, no API key) with Qloo workflows as tools:
-
-1. The worker maps the area with Qloo: `recommend` with the city as `signal_location` for artists, TV shows and
-   brands; the neighbourhood's own favoured venues (`filter_location`); and `entity_tags` on those venues for food
-   concepts and the crowd's vibe. The model gets all of it up front, each signal with an id.
-2. The model digs deeper with 2-5 `qloo_recommend` calls, one lead each: places in the neighbourhood that fans of a
-   top artist favour, artists that fans of a favoured venue like, shows for theme nights. Known signals are passed by
-   Qloo id. If it tries to submit before two calls return something, it is sent back once.
-3. It submits suggestions through `submit_suggestions`. Code checks each one: menu ideas must cite a dining signal,
-   the playlist music, theme nights the show or artist they are built on. Each "Why it fits" line is written from the
-   cited Qloo results (e.g. "Fans of Three Dots & A Dash in Bengaluru also favour Mirzapur"), not by the model, so it
-   never claims a link the data does not show.
-
-Every tool call is recorded and shown under "How the agent worked". If Qloo or Bedrock is not available, the app
-falls back to clearly labelled sample data and a deterministic template writer, so the demo never breaks.
+1. **Locate.** The address is geocoded with Amazon Location, so Qloo is asked about the right neighbourhood and city.
+   (Qloo resolves cities as an audience; its own text geocoder misreads some neighbourhoods, so venue results are
+   checked against the café's city and postcode.)
+2. **Map the area.** `recommend` for the city's artists, TV shows and brands; the neighbourhood's own favourite venues
+   (`filter_location`); and `entity_tags` on those venues for food concepts and the crowd's vibe.
+3. **Dig deeper.** An agent on **Amazon Bedrock (Amazon Nova 2 Lite)** gets all of that, each signal with an id, and
+   makes 2–5 follow-up `recommend` calls of its own: places that fans of a top artist favour, artists that fans of a
+   favourite venue like, shows for theme nights. Known signals are passed by Qloo id so they resolve. If it tries to
+   finish before two calls return something, it is sent back once.
+4. **Check the work.** Code validates every suggestion: menu ideas must cite a food or venue signal, the playlist music,
+   theme nights the show or artist they are built on. A weak answer gets one retry, then only the missing kinds are
+   filled from a deterministic writer. Each **Why it fits** line is written from the cited Qloo results (for example
+   *"Fans of Three Dots & A Dash in Bengaluru also favour Mirzapur"*), not by the model, so it never claims a link the
+   data does not show.
+5. **Show the working.** Every Qloo call is listed under *How the agent worked*.
 
 ## Architecture
 
 Serverless on AWS with [Amplify Gen 2](https://docs.amplify.aws/react/):
 
 ```
-Browser (React) ──startAnalysis mutation──► AppSync ──► start-analysis Lambda ──► SQS
-      ▲                                                                            │
-      └──── onUpdate subscription (progress + result) ◄── AppSync ◄── analyze-worker Lambda
-                                                                       ├─ Qloo (@qloo/qloo-harness, in-process)
-                                                                       ├─ Bedrock: Amazon Nova 2 Lite (tool-use agent loop)
-                                                                       └─ DynamoDB cache of Qloo responses
+Browser (React) ──mutation──► AppSync ──► start Lambda ──► SQS ──► worker Lambda
+      ▲                                     (rate limit)            ├─ Qloo workflows (@qloo/qloo-harness, in-process)
+      │                                                             ├─ Amazon Bedrock: Nova 2 Lite agent (Converse API)
+      └──── progress + result (AppSync subscription) ◄──────────────├─ Amazon Location: geocoding
+                                                                    └─ DynamoDB: 7-day cache of Qloo area data
 ```
 
-- **Cognito**: email sign-in for café owners, plus guest access so anyone can try it without signing up.
-- **AppSync + DynamoDB**: `AnalysisJob` records; the worker updates them through AppSync, so the UI streams progress.
-- **SQS**: agent runs take longer than an AppSync resolver may (~30 s), so jobs are queued (with a dead-letter queue).
-- `core/qloo/`: the only code that touches Qloo. `sample.ts` returns hand-written sample data; `live.ts` runs harness
-  workflows (`recommend` with `signal_location`, `compare_audiences`, …) via `createDirectQlooWorkflowExecutorFromEnvironment`.
-- `core/agent.ts`: turns area taste signals and the menu into evidence-linked suggestions.
-- `web/`: Vite + React front end.
+- **Cognito** guest access, so anyone can try it without signing up.
+- **AppSync + DynamoDB** job records; the worker streams progress back over a subscription.
+- **SQS** because an agent run (20–40 s) is longer than an AppSync resolver may take.
+- **Rate limits** per visitor and overall, so the public demo can't burn the Qloo quota.
+- **Bedrock without keys**: the worker assumes an invoke-only IAM role in the account that has model access.
+- `core/qloo/` is the only code that talks to Qloo; `core/agent-bedrock.ts` is the agent; `core/insights.ts` holds the
+  café, crowd, branch and competitor analyses; `web/` is the Vite + React front end.
 
-## Run it
+## Run it yourself
 
-Requires Node 22.19+ and an AWS profile with Amplify/CDK permissions (account bootstrapped for CDK).
+Requires Node 22.19+ and an AWS account bootstrapped for CDK, with Bedrock access to Amazon Nova 2 Lite.
 
 ```sh
 npm install
-AWS_PROFILE=<profile> AWS_REGION=us-east-1 npm run sandbox   # deploys a personal backend, writes amplify_outputs.json
-npm run dev                                                  # http://localhost:5173
+npx ampx sandbox secret set QLOO_API_KEY --identifier demo     # stored in SSM, never in the repo or browser
+AWS_PROFILE=<profile> npm run sandbox                            # deploys the backend, writes amplify_outputs.json
+npm run dev                                                       # http://localhost:5173
 ```
 
-Deploy the front end to Amplify Hosting: `AWS_PROFILE=<profile> scripts/deploy-web.sh`.
-Live demo: https://localtaste.revenuerush.in (no sign-up needed).
+If Bedrock model access lives in another account, create an invoke-only role there whose trust policy names the
+worker's role, and deploy with `LOCALTASTE_BEDROCK_ROLE_ARN=<role ARN>`. Without a Qloo key the app runs on clearly
+labelled sample data; without Bedrock it falls back to the deterministic writer, so it never breaks.
 
-The Qloo key is an Amplify secret (stored in SSM), never in the repo or the browser:
+Front end to Amplify Hosting: `AWS_PROFILE=<profile> scripts/deploy-web.sh`.
+Screenshots and the demo video are generated from the live app: `cd video && npm install && npm run shots`.
 
-```sh
-npx ampx sandbox secret set QLOO_API_KEY --identifier demo
-```
-
-The model runs on Amazon Bedrock with IAM roles, no API key (set `BEDROCK_MODEL_ID` to swap models). By default the worker calls Bedrock in its own account.
-If another account has the model access, create an invoke-only role there whose trust policy names the worker's
-role, and deploy with `LOCALTASTE_BEDROCK_ROLE_ARN=<that role's ARN>`; the worker assumes it for each run.
-Without model access the template writer is used.
-
-## License
+## Licence
 
 [MIT](LICENSE)

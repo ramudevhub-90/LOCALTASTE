@@ -103,11 +103,15 @@ const NOT_LOCAL = /hotel|oberoi|\btaj\b|marriott|hyatt|hilton|sheraton|conrad|or
 export const isLocalVenue = (name: string) => !NOT_LOCAL.test(name);
 
 // The café's place: our own geocode when available (live), else the text split.
+const squash = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+
 export async function resolvePlace(location: string): Promise<{ hood: string; city: string; filter: string; place?: GeoPlace }> {
   const place = await geocode(location).catch((err) => (console.warn("geocode failed", err), undefined));
   const split = splitLocation(location);
   const city = place?.city ?? split.city;
-  const hood = place?.district ?? split.area.split(",")[0].trim();
+  // Keep the owner's spelling when it is the same place ("Indiranagar" vs "Indira Nagar").
+  const typed = location.split(",").map((p) => p.trim()).find((p) => place?.district && squash(p) === squash(place.district));
+  const hood = typed ?? place?.district ?? split.area.split(",")[0].trim();
   return { hood, city, filter: [hood, city, place?.region].filter(Boolean).join(", "), place };
 }
 

@@ -226,7 +226,7 @@ export function groundedWhy(area: AreaTaste, pool: Map<string, TasteSignal>, sig
 
 // The Qloo tools both agents share. New results join `pool` (so they can be
 // cited) and `extra` (so the UI can show them); every call lands in `trace`.
-function qlooTools(area: AreaTaste, pool: Map<string, TasteSignal>, extra: TasteSignal[], trace: AgentStep[], prefix = "r") {
+function qlooTools(area: AreaTaste, pool: Map<string, TasteSignal>, extra: TasteSignal[], trace: AgentStep[], prefix = "r", maxCalls = 5) {
   const live = qlooMode() === "live";
   const stats = { calls: 0, fruitful: 0 };
   const asked = new Map<string, string>();
@@ -243,7 +243,7 @@ function qlooTools(area: AreaTaste, pool: Map<string, TasteSignal>, extra: Taste
       return JSON.stringify({ status: res.status, tags });
     }
     if (name === "qloo_recommend") {
-      if (stats.calls >= 5) return "You have made enough Qloo calls; submit your suggestions now.";
+      if (stats.calls >= maxCalls) return "You have made enough Qloo calls; finish now.";
       const key = JSON.stringify([input.target_type, input.signals, input.signal_tags]);
       if (asked.has(key)) return `You already made this call: ${asked.get(key)}. Try a different lead.`;
       const n = ++stats.calls;
@@ -484,6 +484,16 @@ const ASK_TOOLS: Tool[] = [
   },
 ];
 
+// Venues whose Qloo description mentions a word from the question, so the
+// model answers "does anyone here serve pizza?" from the data, not memory.
+function descriptionHits(area: AreaTaste, question: string): string[] {
+  const words = [...new Set(question.toLowerCase().match(/[a-z]{4,}/g) ?? [])].filter((w) => !/^(what|which|why|with|that|this|from|have|does|would|should|could|works|ideas|under|plate|crowd|fits)$/.test(w));
+  const stem = (w: string) => w.replace(/(es|s)$/, "");
+  const hits = area.signals.filter((s) => s.note && words.some((w) => s.note!.toLowerCase().includes(stem(w))));
+  if (!hits.length) return words.length ? [`No favoured venue's Qloo description mentions: ${words.join(", ")}.`, ""] : [];
+  return ["Qloo descriptions that mention the question's words:", ...hits.map((s) => `- ${s.name}: ${s.note}`), ""];
+}
+
 export async function askAgent(
   prior: AnalyzeResult,
   menu: string[],
@@ -497,7 +507,7 @@ export async function askAgent(
   const pool = new Map(area.signals.map((s) => [s.id, s]));
   const extra: TasteSignal[] = [];
   const trace: AgentStep[] = [];
-  const { runTool } = qlooTools(area, pool, extra, trace, "a");
+  const { runTool } = qlooTools(area, pool, extra, trace, "a", 3);
 
   const messages: Message[] = [
     {
@@ -512,6 +522,7 @@ export async function askAgent(
             "Suggestions you already gave:",
             ...prior.suggestions.map((s) => `- [${s.kind}] ${s.title}: ${s.pitch}`),
             "",
+            ...descriptionHits(area, question),
             `Owner's question: ${question}`,
           ].join("\n"),
         },
@@ -519,7 +530,7 @@ export async function askAgent(
     },
   ];
 
-  for (let turn = 0; turn < 6; turn++) {
+  for (let turn = 0; turn < 8; turn++) {
     const response = await bedrock().send(
       new ConverseCommand({ modelId: model, system: [{ text: ASK_SYSTEM }], messages, toolConfig: { tools: ASK_TOOLS }, inferenceConfig: { maxTokens: 3000, temperature: 0.4 } }),
     );
@@ -564,6 +575,8 @@ export async function askAgent(
         results.push({ toolResult: { toolUseId: use.toolUseId, content: [{ text: (err as Error).message }], status: "error" } });
       }
     }
+    // Nova sometimes keeps exploring; after a few rounds, ask for the answer.
+    if (turn >= 2) results.push({ text: "You have enough data now. Call answer." });
     messages.push({ role: "user", content: results });
   }
   throw new Error("The agent ran out of turns.");

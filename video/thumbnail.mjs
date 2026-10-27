@@ -12,5 +12,11 @@ await page.goto(`file://${path.join(HERE, "thumbnail.html")}`);
 await page.evaluate(() => document.fonts.ready);
 await page.waitForTimeout(500);
 await page.screenshot({ path: path.join(HERE, "out", "localtaste-thumbnail.png") });
+// Devpost wants 3:2.
+await page.setViewportSize({ width: 1200, height: 800 });
+await page.goto(`file://${path.join(HERE, "thumbnail.html")}?devpost`);
+await page.evaluate(() => document.fonts.ready);
+await page.waitForTimeout(500);
+await page.screenshot({ path: path.join(HERE, "out", "localtaste-devpost-thumbnail.png") });
 await browser.close();
 console.log("saved out/localtaste-thumbnail.png");

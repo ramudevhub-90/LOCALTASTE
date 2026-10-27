@@ -133,7 +133,10 @@
     window.__DONE = true;
   };
   // Opened directly (no recorder): preview every scene.
-  if (!window.__REC) { let i = 0; show(0); cap.textContent = "Preview"; setInterval(() => show(++i % scenes.length), 4000); }
+  // ?scene=N shows one scene, no caption (for stills); otherwise preview them all.
+  const still = new URLSearchParams(location.search).get("scene");
+  if (still !== null) { show(+still); cap.remove(); scenes[+still].querySelectorAll(".step").forEach((s) => s.classList.add("on")); }
+  else if (!window.__REC) { let i = 0; show(0); cap.textContent = "Preview"; setInterval(() => show(++i % scenes.length), 4000); }
 </script>
 </body>
 </html>

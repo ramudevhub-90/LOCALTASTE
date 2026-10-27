@@ -13,7 +13,7 @@ A chain opening a branch commissions market research. The independent café owne
 
 ## What it does
 
-Enter the café's address and current menu (and, optionally, the café's name). In about 30 seconds Localtaste returns:
+Type any address, like on a map (a street, a small locality or a US town, with suggestions as you type), plus the current menu and, optionally, the café's name. In about 30 seconds Localtaste returns:
 
 - **A taste map** of the neighbourhood: its favourite venues (with Qloo's photos and descriptions), the food concepts and crowd "vibe" those venues share, and the city's favourite artists, TV shows and brands.
 - **Suggestions from an agent**: three menu additions the current menu doesn't cover, an in-store playlist (with Spotify links), and two theme nights pairing a show or artist with food. Every card has a **Why it fits** line built from real Qloo results and a **Why this?** panel showing the exact Qloo calls.
@@ -23,7 +23,7 @@ Enter the café's address and current menu (and, optionally, the café's name). 
 - **Competitor check**: a rival's standing, the audience traits it shares with you, and its crowd next to the area's.
 - **Act on it**: a 4-week calendar file (theme nights on Fridays, menu launches on Mondays), copy as text, print.
 
-It works in any city Qloo covers: Bengaluru, Brooklyn, San Francisco, London, Los Angeles and more. Everything describes aggregate neighbourhood affinities, never individuals.
+It works in any city Qloo covers: Bengaluru, Brooklyn, Boulder, San Francisco, London and more. Where Qloo lists few venues around a small locality, it uses the city's favourite cafés, restaurants and bars and says so on screen. Everything describes aggregate neighbourhood affinities, never individuals.
 
 ## How we built it
 

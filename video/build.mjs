@@ -2,13 +2,20 @@
 // the narration in script.mjs, the explainer scenes and the live app.
 //   node build.mjs            everything
 //   node build.mjs demo       one part: voice | intro | demo | outro | assemble
+//   VLANG=hi node build.mjs   Hindi narration (script.hi.mjs), English captions
 import { chromium } from "playwright";
 import ffmpeg from "ffmpeg-static";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { DEMO, INTRO, OUTRO, VOICE } from "./script.mjs";
+
+const LANG = process.env.VLANG === "hi" ? "hi" : "en";
+const { DEMO, INTRO, OUTRO, VOICE } = await import(LANG === "hi" ? "./script.hi.mjs" : "./script.mjs");
+const SUFFIX = LANG === "en" ? "" : `-${LANG}`;
+// On-screen captions are always English, so every version reads for the judges.
+const EN = await import("./script.mjs");
+const english = (part, line, i) => (part === "demo" ? EN.DEMO.find((l) => l.id === line.id) : EN[part.toUpperCase()][i])?.text ?? line.text;
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const OUT = path.join(HERE, "out");
@@ -38,11 +45,13 @@ function polly(voice, text, file) {
   execFileSync("aws", [
     "polly", "synthesize-speech", "--region", "us-east-1", "--profile", process.env.AWS_PROFILE ?? "default",
     "--engine", voice.polly, "--voice-id", voice.name, "--output-format", "mp3", "--sample-rate", "24000",
+    ...(voice.lang ? ["--language-code", voice.lang] : []),
     "--text", text, file,
   ], { stdio: "ignore" });
 }
 
-function voice(key, text) {
+function voice(baseKey, text, caption) {
+  const key = `${baseKey}${SUFFIX}`;
   const wav = path.join(TMP, `${key}.wav`);
   const stamp = path.join(TMP, `${key}.txt`);
   const id = `${JSON.stringify(VOICE)}|${text}`;
@@ -57,13 +66,13 @@ function voice(key, text) {
     execFileSync(ffmpeg, ["-y", "-loglevel", "error", "-i", mp3, "-ar", "48000", "-ac", "2", wav]);
     writeFileSync(stamp, id);
   }
-  return { key, wav, dur: duration(wav), caption: text };
+  return { key, wav, dur: duration(wav), caption, spoken: text };
 }
 
 const lines = () => ({
-  intro: INTRO.map((l, i) => ({ ...l, ...voice(`intro-${i}`, l.text) })),
-  demo: DEMO.map((l) => ({ ...l, ...voice(`demo-${l.id}`, l.text) })),
-  outro: OUTRO.map((l, i) => ({ ...l, ...voice(`outro-${i}`, l.text) })),
+  intro: INTRO.map((l, i) => ({ ...l, ...voice(`intro-${i}`, l.text, english("intro", l, i)) })),
+  demo: DEMO.map((l, i) => ({ ...l, ...voice(`demo-${l.id}`, l.text, english("demo", l, i)) })),
+  outro: OUTRO.map((l, i) => ({ ...l, ...voice(`outro-${i}`, l.text, english("outro", l, i)) })),
 });
 
 // ---- Recording helpers -------------------------------------------------
@@ -78,7 +87,7 @@ async function recorder(browser, name) {
     async finish() {
       const video = page.video();
       await context.close();
-      const file = path.join(TMP, `${name}.webm`);
+      const file = path.join(TMP, `${name}${SUFFIX}.webm`);
       renameSync(await video.path(), file);
       return file;
     },
@@ -247,7 +256,7 @@ async function recordDemo(browser, items) {
 // ---- Assembly ----------------------------------------------------------
 
 function encode(part, name) {
-  const out = path.join(TMP, `${name}.mp4`);
+  const out = path.join(TMP, `${name}${SUFFIX}.mp4`);
   const inputs = ["-ss", part.start.toFixed(3), "-i", part.video];
   const mix = [];
   part.cues.forEach((c, i) => {
@@ -273,7 +282,7 @@ const srtTime = (t) => {
 function assemble(parts) {
   const files = parts.map((p, i) => encode(p, `part-${i}`));
   const total = parts.reduce((a, p) => a + p.length, 0);
-  const out = path.join(OUT, "localtaste-demo.mp4");
+  const out = path.join(OUT, `localtaste-demo${SUFFIX}.mp4`);
   const ins = files.flatMap((f) => ["-i", f]);
   const cat = files.map((_, i) => `[${i}:v][${i}:a]`).join("") + `concat=n=${files.length}:v=1:a=1[v0][a0]`;
   const fades = `[v0]fade=t=in:st=0:d=0.8,fade=t=out:st=${(total - 1).toFixed(2)}:d=1[v];[a0]loudnorm=I=-16:TP=-1.5:LRA=11,aformat=sample_rates=48000:channel_layouts=stereo,afade=t=out:st=${(total - 1).toFixed(2)}:d=1[a]`;
@@ -284,18 +293,25 @@ function assemble(parts) {
   ]);
   let offset = 0;
   const srt = [];
+  const spoken = [];
   for (const p of parts) {
-    for (const c of p.cues) srt.push(`${srt.length + 1}\n${srtTime(offset + c.at)} --> ${srtTime(offset + c.at + c.dur)}\n${c.caption}\n`);
+    for (const c of p.cues) {
+      const span = `${srtTime(offset + c.at)} --> ${srtTime(offset + c.at + c.dur)}`;
+      srt.push(`${srt.length + 1}\n${span}\n${c.caption}\n`);
+      spoken.push(`${spoken.length + 1}\n${span}\n${c.spoken ?? c.text}\n`);
+    }
     offset += p.length;
   }
-  writeFileSync(path.join(OUT, "localtaste-demo.srt"), srt.join("\n"));
+  writeFileSync(path.join(OUT, `localtaste-demo${SUFFIX}.srt`), srt.join("\n"));
+  // Non-English versions also get subtitles in the spoken language.
+  if (LANG !== "en") writeFileSync(path.join(OUT, `localtaste-demo${SUFFIX}.${LANG}.srt`), spoken.join("\n"));
   return { out, total };
 }
 
 // ---- Main --------------------------------------------------------------
 
 const step = process.argv[2] ?? "all";
-const saved = path.join(TMP, "parts.json");
+const saved = path.join(TMP, `parts${SUFFIX}.json`);
 const parts = existsSync(saved) ? JSON.parse(readFileSync(saved, "utf8")) : {};
 const save = () => writeFileSync(saved, JSON.stringify(parts, null, 2));
 

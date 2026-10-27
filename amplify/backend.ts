@@ -36,10 +36,19 @@ const qlooCache = new Table(stack, "QlooCache", {
 qlooCache.grantReadWriteData(worker);
 backend.analyzeWorker.addEnvironment("QLOO_CACHE_TABLE", qlooCache.tableName);
 
-// Claude on Bedrock through cross-region inference profiles (us.anthropic.*).
-worker.addToRolePolicy(
-  new PolicyStatement({
-    actions: ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"],
-    resources: ["arn:aws:bedrock:*::foundation-model/anthropic.*", `arn:aws:bedrock:*:${stack.account}:inference-profile/*`],
-  }),
-);
+// Bedrock models through cross-region inference profiles (us.amazon.nova-*, …).
+// With LOCALTASTE_BEDROCK_ROLE_ARN, the worker assumes that invoke-only role in
+// an account with model access instead (its trust policy names this worker's
+// role); otherwise it calls Bedrock in this account.
+const bedrockRoleArn = process.env.LOCALTASTE_BEDROCK_ROLE_ARN ?? "";
+if (bedrockRoleArn) {
+  backend.analyzeWorker.addEnvironment("BEDROCK_ROLE_ARN", bedrockRoleArn);
+  worker.addToRolePolicy(new PolicyStatement({ actions: ["sts:AssumeRole"], resources: [bedrockRoleArn] }));
+} else {
+  worker.addToRolePolicy(
+    new PolicyStatement({
+      actions: ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"],
+      resources: ["arn:aws:bedrock:*::foundation-model/*", `arn:aws:bedrock:*:${stack.account}:inference-profile/*`],
+    }),
+  );
+}

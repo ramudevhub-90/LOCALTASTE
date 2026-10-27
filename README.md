@@ -17,16 +17,16 @@ Results are aggregate neighbourhood affinities, never claims about individuals.
 
 ## How the agent works
 
-The worker runs a Claude tool-use loop on Amazon Bedrock (`core/agent-claude.ts`, Claude Sonnet 4.6 via the Lambda role, no API key) with Qloo workflows as tools:
+The worker runs a tool-use agent loop on Amazon Bedrock (`core/agent-bedrock.ts`, Amazon Nova Pro through the model-neutral Converse API, IAM roles only, no API key) with Qloo workflows as tools:
 
 1. `get_area_taste` maps the neighbourhood with Qloo `recommend` (`signal_location`) for artists, TV shows and brands,
    plus the favoured venues and the concepts (`entity_tags`) that characterize them.
-2. Claude digs further where it sharpens an idea, e.g. `qloo_recommend` with a top artist as a signal to find
+2. The model digs further where it sharpens an idea, e.g. `qloo_recommend` with a top artist as a signal to find
    places their fans like, or `qloo_find_tags` to turn a cuisine into a Qloo tag.
 3. It submits suggestions through a strict `submit_suggestions` tool. Every suggestion must cite signal ids from
    the tool results; uncited suggestions are dropped, and the UI shows each cited signal with its Qloo call.
 
-Every tool call is recorded and shown under "How the agent worked". If Qloo or Claude is not configured, the app
+Every tool call is recorded and shown under "How the agent worked". If Qloo or Bedrock is not available, the app
 falls back to clearly labelled sample data and a deterministic template writer, so the demo never breaks.
 
 ## Architecture
@@ -38,7 +38,7 @@ Browser (React) ──startAnalysis mutation──► AppSync ──► start-an
       ▲                                                                            │
       └──── onUpdate subscription (progress + result) ◄── AppSync ◄── analyze-worker Lambda
                                                                        ├─ Qloo (@qloo/qloo-harness, in-process)
-                                                                       ├─ Claude (tool-use agent loop)
+                                                                       ├─ Bedrock: Amazon Nova Pro (tool-use agent loop)
                                                                        └─ DynamoDB cache of Qloo responses
 ```
 
@@ -69,8 +69,10 @@ The Qloo key is an Amplify secret (stored in SSM), never in the repo or the brow
 npx ampx sandbox secret set QLOO_API_KEY --identifier demo
 ```
 
-Claude runs on Amazon Bedrock with the worker's IAM role. The account needs access to Claude Sonnet 4.6
-(submit Anthropic's use-case form once in the Bedrock console); without it the template writer is used.
+The model runs on Amazon Bedrock with IAM roles, no API key (set `BEDROCK_MODEL_ID` to swap models). By default the worker calls Bedrock in its own account.
+If another account has the model access, create an invoke-only role there whose trust policy names the worker's
+role, and deploy with `LOCALTASTE_BEDROCK_ROLE_ARN=<that role's ARN>`; the worker assumes it for each run.
+Without model access the template writer is used.
 
 ## License
 

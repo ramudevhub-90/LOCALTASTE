@@ -1,6 +1,6 @@
 // Deterministic suggestion writer: turns neighbourhood taste signals plus the
-// owner's menu into suggestions. Used when Claude is unavailable, and as the
-// fallback if the Claude agent (agent-claude.ts) fails.
+// owner's menu into suggestions. Used when the Bedrock model is unavailable, and as the
+// fallback if the Bedrock agent (agent-bedrock.ts) fails.
 
 import type { AreaTaste, Domain, TasteSignal } from "./qloo/index.ts";
 
@@ -24,8 +24,10 @@ export interface AgentStep {
 export interface AnalyzeResult {
   area: AreaTaste;
   suggestions: Suggestion[];
-  writer: "template" | "claude";
-  // Short overview from the agent (Claude only).
+  writer: "template" | "bedrock";
+  // Bedrock model id that wrote the suggestions (writer "bedrock").
+  model?: string;
+  // Short overview from the agent (Bedrock writer only).
   summary?: string;
   trace?: AgentStep[];
 }

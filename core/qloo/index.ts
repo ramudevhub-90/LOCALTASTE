@@ -6,7 +6,7 @@ import type { AreaComparison, AreaTaste, QlooSource, TasteSignal } from "./types
 
 export * from "./types.ts";
 export { SAMPLE_AREAS } from "./sample.ts";
-export { DOMAIN_TARGET, domainOf, qlooExec, resultItems, toSignals, type QlooItem, type QlooResult } from "./live.ts";
+export { DOMAIN_TARGET, domainOf, qlooExec, resultItems, splitLocation, toSignals, type QlooItem, type QlooResult } from "./live.ts";
 
 // Where Qloo responses are cached to protect the event quota. Lambda passes a
 // DynamoDB-backed cache; the default is per-process memory.

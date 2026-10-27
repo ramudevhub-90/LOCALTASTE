@@ -60,6 +60,12 @@ export function App() {
   );
 }
 
+// "us.amazon.nova-pro-v1:0" → "Amazon Nova Pro"
+function modelLabel(id = "") {
+  const known: Record<string, string> = { "nova-pro": "Amazon Nova Pro", "nova-2-lite": "Amazon Nova 2 Lite", "nova-lite": "Amazon Nova Lite" };
+  return Object.entries(known).find(([k]) => id.includes(k))?.[1] ?? id.replace(/^us\./, "");
+}
+
 function Results({ result }: { result: RunResult }) {
   const byId = new Map(result.area.signals.map((s) => [s.id, s]));
   return (
@@ -74,7 +80,7 @@ function Results({ result }: { result: RunResult }) {
       <section className="card">
         <div className="row">
           <h2>Suggestions</h2>
-          <span className="pill">{result.writer === "claude" ? "Written by Claude" : "Template writer"}</span>
+          <span className="pill">{result.writer === "bedrock" ? `Written by ${modelLabel(result.model)}` : "Template writer"}</span>
         </div>
         {result.summary && <p className="summary">{result.summary}</p>}
         <div className="grid">

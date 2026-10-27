@@ -34,6 +34,16 @@ const qlooCache = new Table(stack, "QlooCache", {
   removalPolicy: RemovalPolicy.DESTROY,
 });
 qlooCache.grantReadWriteData(worker);
+
+// Hourly run counters for the public demo (per visitor and overall).
+const rateLimits = new Table(stack, "RateLimits", {
+  partitionKey: { name: "key", type: AttributeType.STRING },
+  billingMode: BillingMode.PAY_PER_REQUEST,
+  timeToLiveAttribute: "expiresAt",
+  removalPolicy: RemovalPolicy.DESTROY,
+});
+rateLimits.grantReadWriteData(starter);
+backend.startAnalysis.addEnvironment("RATE_TABLE", rateLimits.tableName);
 backend.analyzeWorker.addEnvironment("QLOO_CACHE_TABLE", qlooCache.tableName);
 
 // Bedrock models through cross-region inference profiles (us.amazon.nova-*, …).

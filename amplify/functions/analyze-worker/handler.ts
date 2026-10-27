@@ -6,8 +6,10 @@ import { Amplify } from "aws-amplify";
 import { generateClient } from "aws-amplify/data";
 import type { SQSBatchResponse, SQSEvent } from "aws-lambda";
 import { ConverseCommand } from "@aws-sdk/client-bedrock-runtime";
-import { MODEL, bedrock, llmAvailable, runAgent } from "../../../core/agent-bedrock.ts";
-import { QlooError, type QlooOperation, type TasteCache, compareAreas, getAreaTaste, qlooExec, qlooMode } from "../../../core/qloo/index.ts";
+import type { AnalyzeResult } from "../../../core/agent.ts";
+import { MODEL, askAgent, bedrock, llmAvailable, runAgent } from "../../../core/agent-bedrock.ts";
+import { type VenueRef, areaCrowd, branchAreas, competitor, crowd, findVenue, standing } from "../../../core/insights.ts";
+import { type AreaTaste, QlooError, type QlooOperation, type TasteCache, compareAreas, getAreaTaste, qlooExec, qlooMode } from "../../../core/qloo/index.ts";
 import type { Schema } from "../../data/resource";
 
 const { resourceConfig, libraryOptions } = await getAmplifyDataClientConfig(env);
@@ -36,12 +38,18 @@ type SelfTest = {
   probe?: { operation: QlooOperation; input: Record<string, unknown> };
   agent?: { location: string; menu: string[]; model?: string };
   area?: string;
+  insights?: { location: string; cafe?: string };
 };
 
 export const handler = async (event: SQSEvent | SelfTest): Promise<SQSBatchResponse | object> => {
   if ("selftest" in event) {
     if (event.probe) return qlooExec(event.probe.operation, event.probe.input).catch((e) => ({ error: e.code, message: e.message }));
     if (event.area) return getAreaTaste(event.area, cache);
+    if (event.insights) {
+      const area = await getAreaTaste(event.insights.location, cache);
+      const ins = await areaInsights(area, event.insights.cafe);
+      return { ins, branch: await branchAreas(area, ins?.cafe) };
+    }
     if (event.agent) return runAgent(event.agent.location, event.agent.menu, { cache, model: event.agent.model });
     return selfTest(event.dummyKey);
   }
@@ -61,28 +69,86 @@ async function run(jobId: string) {
   const { data: job } = await client.models.AnalysisJob.get({ id: jobId });
   if (!job || job.status === "DONE") return;
   const step = (text: string) => client.models.AnalysisJob.update({ id: jobId, status: "RUNNING", step: text });
+  const menu = (job.menu ?? []).filter((m): m is string => !!m);
 
   try {
-    await step("Mapping neighbourhood taste…");
-    const menu = (job.menu ?? []).filter((m): m is string => !!m);
-    // Compare jobs only need the comparison, so they skip the model run.
-    const analysis = await runAgent(job.location, menu, { cache, onStep: step, useLlm: !job.compareWith });
-    const comparison = job.compareWith ? (await step("Comparing areas…"), await compareAreas(job.location, job.compareWith, cache)) : undefined;
-    await client.models.AnalysisJob.update({
-      id: jobId,
-      status: "DONE",
-      step: "Done",
-      result: JSON.stringify({ ...analysis, comparison }),
-    });
+    let result: object;
+    if (job.kind && job.kind !== "analyze") result = await followUp(job.kind, job.parentId ?? "", job.input ?? "", menu, step);
+    else {
+      await step("Mapping neighbourhood taste…");
+      // Compare jobs only need the comparison, so they skip the model run.
+      const area = await getAreaTaste(job.location, cache);
+      const [analysis, insights] = await Promise.all([
+        runAgent(job.location, menu, { cache, onStep: step, useLlm: !job.compareWith }),
+        job.compareWith ? undefined : areaInsights(area, job.cafe ?? undefined),
+      ]);
+      const comparison = job.compareWith ? (await step("Comparing areas…"), await compareAreas(job.location, job.compareWith, cache)) : undefined;
+      result = { ...analysis, comparison, insights };
+    }
+    await client.models.AnalysisJob.update({ id: jobId, status: "DONE", step: "Done", result: JSON.stringify(result) });
   } catch (err) {
     console.error(err);
+    const known = err instanceof QlooError || (err instanceof Error && err.name === "UserError");
     await client.models.AnalysisJob.update({
       id: jobId,
       status: "FAILED",
       step: "Failed",
-      error: err instanceof QlooError ? err.message : "The agent hit an unexpected error.",
+      error: known ? (err as Error).message : "The agent hit an unexpected error.",
     });
   }
+}
+
+class UserError extends Error {
+  name = "UserError";
+}
+
+// Your café's standing and the area's crowd: extra Qloo calls that run while
+// the agent works. Any of them may come back empty; none blocks the result.
+async function areaInsights(area: AreaTaste, cafeName?: string) {
+  if (area.source !== "live") return undefined;
+  const cafe = cafeName ? await findVenue(cafeName, area).catch(() => undefined) : undefined;
+  const [rank, areaCrowdProfile, cafeCrowd] = await Promise.all([
+    cafe ? retry("standing", () => standing(cafe, area)) : undefined,
+    retry("crowd", () => areaCrowd(area)),
+    cafe ? retry("cafe crowd", () => crowd([cafe])) : undefined,
+  ]);
+
+  return { cafeName, cafe, standing: rank, crowd: areaCrowdProfile, cafeCrowd };
+}
+
+// These run alongside the agent's own Qloo calls, so a rate-limit blip is
+// likely; try once more before leaving the panel out.
+async function retry<T>(what: string, fn: () => Promise<T>): Promise<T | undefined> {
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const value = await fn();
+      if (value !== undefined || attempt === 2) return value;
+    } catch (err) {
+      console.warn(`${what} failed (attempt ${attempt})`, err);
+    }
+    await new Promise((r) => setTimeout(r, 1500));
+  }
+  return undefined;
+}
+
+async function followUp(kind: string, parentId: string, input: string, menu: string[], step: (t: string) => Promise<unknown>) {
+  const { data: parent } = await client.models.AnalysisJob.get({ id: parentId });
+  if (!parent?.result) throw new UserError("Run the analysis first.");
+  const prior = JSON.parse(parent.result as string) as AnalyzeResult & { insights?: { cafe?: VenueRef } };
+  const area = prior.area;
+  if (area.source !== "live") throw new UserError("This needs live Qloo data.");
+  if (kind === "branch") {
+    await step("Mapping where your neighbourhood's favourites are popular…");
+    return { kind, ...(await branchAreas(area, prior.insights?.cafe)) };
+  }
+  if (kind === "competitor") {
+    await step(`Finding ${input} on Qloo…`);
+    const report = await competitor(input, area, prior.insights?.cafe);
+    if (!report) throw new UserError(`Couldn't find "${input}" on Qloo near ${area.label}. Try its exact name.`);
+    return { kind, ...report };
+  }
+  await step("Thinking about your question…");
+  return { kind, question: input, ...(await askAgent(prior, menu, input, { onStep: step })) };
 }
 
 // Invoked directly (not via SQS) to check the Qloo harness and Bedrock from inside Lambda.

@@ -3,13 +3,28 @@
 
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "../../amplify/data/resource";
+import type { AskResult } from "../../core/agent-bedrock.ts";
 import type { AnalyzeResult } from "../../core/agent.ts";
-import type { AreaComparison, Domain } from "../../core/qloo/types.ts";
+import type { BranchArea, CompetitorReport, Crowd, Standing, VenueRef } from "../../core/insights.ts";
+import type { AreaComparison, Domain, Evidence } from "../../core/qloo/types.ts";
 
-export type { AnalyzeResult, Suggestion } from "../../core/agent.ts";
+export type { AgentStep, AnalyzeResult, Suggestion } from "../../core/agent.ts";
+export type { AskResult } from "../../core/agent-bedrock.ts";
+export type { BranchArea, CompetitorReport, Crowd, Standing, VenueRef } from "../../core/insights.ts";
 export type { AreaComparison, AreaTaste, Domain, TasteSignal } from "../../core/qloo/types.ts";
 
-export type RunResult = AnalyzeResult & { comparison?: AreaComparison };
+export interface Insights {
+  cafeName?: string;
+  cafe?: VenueRef;
+  standing?: Standing;
+  crowd?: Crowd;
+  cafeCrowd?: Crowd;
+}
+
+export type RunResult = AnalyzeResult & { comparison?: AreaComparison; insights?: Insights; jobId: string };
+export type BranchResult = { kind: "branch"; areas: BranchArea[]; evidence: Evidence };
+export type CompetitorResult = CompetitorReport & { kind: "competitor" };
+export type AskReply = AskResult & { kind: "ask"; question: string };
 
 export const DOMAIN_LABEL: Record<Domain, string> = {
   dining: "Food & drink",
@@ -22,23 +37,33 @@ export const DOMAIN_LABEL: Record<Domain, string> = {
 export const DEMO_AREAS = [
   "Indiranagar, Bengaluru",
   "Koramangala, Bengaluru",
-  "Jayanagar, Bengaluru",
-  "HSR Layout, Bengaluru",
-  "Malleshwaram, Bengaluru",
-  "Whitefield, Bengaluru",
+  "Williamsburg, Brooklyn, NY",
+  "Mission District, San Francisco",
+  "Shoreditch, London",
+  "Silver Lake, Los Angeles, CA",
 ];
 
 const client = generateClient<Schema>();
 type Job = Schema["AnalysisJob"]["type"];
 
 export async function runAnalysis(
-  input: { location: string; menu: string[]; compareWith?: string },
+  input: { location: string; menu: string[]; compareWith?: string; cafe?: string },
   onStep: (step: string) => void,
 ): Promise<RunResult> {
   const { data: job, errors } = await client.mutations.startAnalysis(input);
   if (!job) throw new Error(errors?.[0]?.message ?? "Could not start the analysis.");
-  onStep(job.step ?? "Queued");
+  const result = await waitFor(job, onStep);
+  return { ...(result as AnalyzeResult), jobId: job.id };
+}
 
+export async function runFollowUp<T>(parentId: string, kind: "branch" | "competitor" | "ask", input: string, onStep: (step: string) => void): Promise<T> {
+  const { data: job, errors } = await client.mutations.startFollowUp({ parentId, kind, input });
+  if (!job) throw new Error(errors?.[0]?.message ?? "Could not start that.");
+  return (await waitFor(job, onStep)) as T;
+}
+
+function waitFor(job: Job, onStep: (step: string) => void): Promise<unknown> {
+  onStep(job.step ?? "Queued");
   return new Promise((resolve, reject) => {
     let settled = false;
     const handle = (j: Job | null | undefined) => {
@@ -49,7 +74,7 @@ export async function runAnalysis(
         sub.unsubscribe();
         clearInterval(poll);
         if (j.status === "DONE") resolve(JSON.parse(j.result as string));
-        else reject(new Error(j.error ?? "The analysis failed."));
+        else reject(new Error(j.error ?? "That didn't work."));
       }
     };
     const sub = client.models.AnalysisJob.onUpdate({ filter: { id: { eq: job.id } } }).subscribe({

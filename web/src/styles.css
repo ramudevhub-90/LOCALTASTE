@@ -147,3 +147,73 @@ button.link { background: none; color: var(--accent); padding: 0; font-size: 0.9
 .cmp small { color: var(--muted); font-family: var(--mono); }
 
 .foot { color: var(--muted); font-size: 0.85rem; text-align: center; }
+
+/* Shared helpers */
+.muted { color: var(--muted); }
+.note { color: var(--muted); font-size: 0.8rem; margin: 8px 0 0; }
+button.ghost { background: transparent; color: var(--accent); border: 1px solid var(--line); padding: 7px 12px; font-size: 0.85rem; }
+button.ghost:hover:not(:disabled) { border-color: var(--accent); filter: none; }
+
+/* Favourite venues strip */
+.venues { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(150px, 1fr); gap: 12px; overflow-x: auto; margin: 0 0 20px; padding-bottom: 4px; scroll-snap-type: x mandatory; }
+.venue { margin: 0; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; background: var(--bg); scroll-snap-align: start; }
+.venue img, .venue .ph { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; background: var(--accent-soft); }
+.venue figcaption { padding: 8px 10px; font-size: 0.8rem; line-height: 1.35; }
+.venue figcaption strong { display: block; font-size: 0.88rem; }
+.venue figcaption span { color: var(--muted); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+
+/* Insights: your café + crowd */
+.insights { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 24px 32px; }
+.big { font: 700 2.6rem/1 var(--sans); margin: 4px 0 6px; color: var(--accent); }
+.big span { font-size: 1rem; color: var(--muted); font-weight: 500; }
+.ranked { list-style: none; padding: 0; margin: 12px 0 0; }
+.ranked li { position: relative; display: flex; justify-content: space-between; gap: 8px; padding: 4px 8px; margin-bottom: 4px; border-radius: 3px; font-size: 0.86rem; overflow: hidden; }
+.ranked .fill { position: absolute; inset: 0 auto 0 0; background: var(--bar); opacity: 0.6; }
+.ranked li.you .fill { background: var(--saffron); opacity: 0.45; }
+.ranked li.you { font-weight: 700; }
+.ranked .name, .ranked .num { position: relative; }
+.num { font: 0.78rem var(--mono); color: var(--muted); }
+.crowd { margin-top: 6px; }
+.crowd-row { display: grid; grid-template-columns: 70px 1fr 48px; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 0.85rem; }
+.crowd-row .num { text-align: right; }
+.track { position: relative; height: 14px; background: linear-gradient(to right, transparent calc(50% - 0.5px), var(--line) calc(50% - 0.5px), var(--line) calc(50% + 0.5px), transparent calc(50% + 0.5px)); }
+.skew { position: absolute; top: 2px; height: 10px; border-radius: 2px; }
+.skew.area { background: var(--accent); }
+.skew.cafe { background: var(--saffron); top: 7px; height: 6px; }
+.legend { font-size: 0.8rem; color: var(--muted); display: flex; align-items: center; gap: 6px; margin: 0 0 8px; }
+.key { display: inline-block; width: 12px; height: 8px; border-radius: 2px; }
+.key.area { background: var(--accent); }
+.key.cafe { background: var(--saffron); margin-left: 8px; }
+
+/* Plan actions */
+.actions { display: flex; flex-wrap: wrap; gap: 8px; margin-left: auto; }
+.links { display: flex; flex-wrap: wrap; gap: 6px 12px; margin: 0 0 10px; font-size: 0.85rem; }
+.links a { color: var(--accent); text-decoration: none; }
+.links a:hover { text-decoration: underline; }
+
+/* Ask the agent */
+.ask .row { margin-bottom: 10px; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+button.chip { background: var(--accent-soft); color: var(--accent); padding: 6px 12px; border-radius: 999px; font-size: 0.82rem; font-weight: 500; }
+.reply { border-top: 1px dashed var(--line); margin-top: 16px; padding-top: 14px; }
+.reply .q { font-weight: 700; margin: 0 0 6px; }
+.reply .q::before { content: "Q · "; font: 600 0.75rem var(--mono); color: var(--accent); }
+.mini { padding-left: 18px; margin: 8px 0 0; font-size: 0.9rem; }
+.mini li { margin-bottom: 6px; }
+.why-inline { display: block; color: var(--muted); font-size: 0.82rem; }
+
+/* Grow: branch finder + competitor */
+.grow { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 24px 32px; }
+.grow .error { grid-column: 1 / -1; }
+.branches { margin: 14px 0 0; padding-left: 20px; }
+.branches li { margin-bottom: 8px; }
+.rival { margin-top: 14px; font-size: 0.92rem; }
+.rival p { margin: 0 0 8px; }
+
+/* Print: just the plan */
+@media print {
+  .band, .onboard, .ask, .grow, .actions, .trace, button.link, .links, .foot, .card:has(.cmp), form { display: none !important; }
+  body { background: #fff; color: #000; }
+  .card { border: 0; padding: 0; break-inside: avoid; }
+  .sugg { break-inside: avoid; }
+}

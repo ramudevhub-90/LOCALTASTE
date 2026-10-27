@@ -1,6 +1,8 @@
 import { useState } from "react";
 import type { AreaComparison, AreaTaste, Domain, RunResult, Suggestion, TasteSignal } from "./api.ts";
 import { DEMO_AREAS, DOMAIN_LABEL, runAnalysis } from "./api.ts";
+import { AskAgent, GrowTools, InsightsPanel, PlanActions } from "./extras.tsx";
+import { spotifySearch } from "./plan.ts";
 
 const DEMO_MENU = "Cappuccino\nPour-over coffee\nMasala chai\nCroissant\nAvocado toast\nBrownie";
 const KIND_LABEL: Record<Suggestion["kind"], string> = { menu: "Menu idea", playlist: "Playlist", theme_night: "Theme night" };
@@ -9,6 +11,7 @@ export function App() {
   const areas = DEMO_AREAS;
   const [location, setLocation] = useState("12th Main, Indiranagar, Bengaluru");
   const [menu, setMenu] = useState(DEMO_MENU);
+  const [cafe, setCafe] = useState("Glens Bakehouse");
   const [result, setResult] = useState<RunResult | null>(null);
   const [error, setError] = useState("");
   const [step, setStep] = useState("");
@@ -18,7 +21,7 @@ export function App() {
     setStep("Starting…");
     setError("");
     try {
-      setResult(await runAnalysis({ location, menu: menu.split("\n").map((m) => m.trim()).filter(Boolean) }, setStep));
+      setResult(await runAnalysis({ location, menu: menu.split("\n").map((m) => m.trim()).filter(Boolean), cafe: cafe.trim() || undefined }, setStep));
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -51,6 +54,10 @@ export function App() {
             <datalist id="areas">{areas.map((a) => <option key={a} value={a} />)}</datalist>
           </label>
           <label>
+            Your café's name <span className="hint">(optional: see how it stands against the neighbourhood)</span>
+            <input value={cafe} onChange={(e) => setCafe(e.target.value)} placeholder="e.g. Glens Bakehouse" maxLength={120} />
+          </label>
+          <label>
             Current menu <span className="hint">(one item per line)</span>
             <textarea value={menu} onChange={(e) => setMenu(e.target.value)} rows={6} />
           </label>
@@ -59,6 +66,13 @@ export function App() {
         </form>
 
         {result && <Results result={result} />}
+        {result && result.area.source === "live" && (
+          <AskAgent
+            result={result}
+            onSignals={(extra) => setResult((r) => (r ? { ...r, area: { ...r.area, signals: [...r.area.signals, ...extra.filter((x) => !r.area.signals.some((s) => s.id === x.id))] } } : r))}
+          />
+        )}
+        {result && result.area.source === "live" && <GrowTools result={result} />}
         {result && <Compare home={result.area} menu={menu} areas={areas} />}
 
         <footer className="foot">
@@ -84,12 +98,15 @@ function Results({ result }: { result: RunResult }) {
           <h2>Taste map · {result.area.label}</h2>
           {result.area.source === "sample" ? <span className="pill warn">Sample data</span> : <span className="pill live">Live Qloo</span>}
         </div>
+        <Favourites area={result.area} />
         <TasteMap area={result.area} />
       </section>
-      <section className="card">
+      {result.insights && <InsightsPanel insights={result.insights} area={result.area} />}
+      <section className="card plan">
         <div className="row">
           <h2>Suggestions</h2>
           <span className="pill">{result.writer === "bedrock" ? `Written by ${modelLabel(result.model)}` : "Template writer"}</span>
+          <PlanActions result={result} />
         </div>
         {result.summary && <p className="summary">{result.summary}</p>}
         <div className="grid">
@@ -111,6 +128,25 @@ function Results({ result }: { result: RunResult }) {
         )}
       </section>
     </>
+  );
+}
+
+// The neighbourhood's favourite venues, with Qloo's photo and description.
+function Favourites({ area }: { area: AreaTaste }) {
+  const venues = area.signals.filter((s) => s.id.startsWith("venue:")).slice(0, 6);
+  if (!venues.some((v) => v.image)) return null;
+  return (
+    <div className="venues">
+      {venues.map((v) => (
+        <figure key={v.id} className="venue">
+          {v.image ? <img src={v.image} alt="" loading="lazy" /> : <div className="ph" />}
+          <figcaption>
+            <strong>{v.name}</strong>
+            {v.note && <span>{v.note}</span>}
+          </figcaption>
+        </figure>
+      ))}
+    </div>
   );
 }
 
@@ -146,6 +182,17 @@ function SuggestionCard({ s, signals }: { s: Suggestion; signals: TasteSignal[] 
       <h3>{s.title}</h3>
       <p>{s.pitch}</p>
       {s.why && <p className="why">{s.why}</p>}
+      {s.kind === "playlist" && (
+        <p className="links">
+          {signals
+            .filter((g) => g.domain === "music")
+            .map((g) => (
+              <a key={g.id} href={spotifySearch(g.name)} target="_blank" rel="noreferrer">
+                {g.name} ↗
+              </a>
+            ))}
+        </p>
+      )}
       <button className="link" onClick={() => setOpen(!open)} aria-expanded={open}>
         {open ? "Hide evidence" : "Why this?"}
       </button>
@@ -200,11 +247,11 @@ function Compare({ home, menu, areas }: { home: AreaTaste; menu: string; areas: 
       {cmp && (
         <div className="cmp">
           <div>
-            <h3>Stronger in {cmp.a.label}</h3>
+            <h3>Only in {cmp.a.label}</h3>
             <ul>{cmp.onlyA.map((s) => <li key={s.id}>{s.name} <small>{DOMAIN_LABEL[s.domain]}</small></li>)}</ul>
           </div>
           <div>
-            <h3>Stronger in {cmp.b.label}</h3>
+            <h3>Only in {cmp.b.label}</h3>
             <ul>{cmp.onlyB.map((s) => <li key={s.id}>{s.name} <small>{DOMAIN_LABEL[s.domain]}</small></li>)}</ul>
           </div>
         </div>

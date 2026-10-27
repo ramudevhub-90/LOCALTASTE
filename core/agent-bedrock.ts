@@ -55,7 +55,7 @@ const SYSTEM = `You are Localtaste, a taste advisor for independent cafés and s
 You turn Qloo's aggregate taste data into concrete, low-cost ideas an owner can try this month.
 
 You are given the area's Qloo signals up front, each with an id:
-- dining: the neighbourhood's own favoured venues (tag "venue") and food concepts. You know many of these venues; what they serve hints at local appetite.
+- dining: the neighbourhood's own favoured venues (tag "venue", with Qloo's description of what they serve) and food concepts. What they serve hints at local appetite; rely on Qloo's description, not memory.
 - vibe: Qloo audience and ambience tags for the people who favour those venues.
 - music, film_tv, brand: what the wider city's audience over-indexes on (Qloo resolves cities, not neighbourhoods, as an audience).
 
@@ -150,7 +150,7 @@ const tools: Tool[] = toolDefs.map((t) => ({
 
 // One signal per line keeps the prompt short and easy for the model to cite.
 const line = (s: TasteSignal) =>
-  [s.id, s.name, s.domain, `affinity ${s.affinity}`, s.popularity !== undefined ? `popularity ${s.popularity}` : "", s.lift ? `lift ${s.lift}` : "", s.tags.join("/")]
+  [s.id, s.name, s.domain, `affinity ${s.affinity}`, s.popularity !== undefined ? `popularity ${s.popularity}` : "", s.lift ? `lift ${s.lift}` : "", s.tags.join("/"), s.note ? `Qloo: ${s.note}` : ""]
     .filter(Boolean)
     .join(" | ");
 
@@ -190,21 +190,45 @@ export async function runAgent(
   }
 }
 
-async function agentLoop(
-  area: AreaTaste,
-  location: string,
-  menu: string[],
-  onStep: (text: string) => Promise<unknown> | void,
-  model: string,
-): Promise<AnalyzeResult> {
-  const pool = new Map(area.signals.map((s) => [s.id, s]));
-  const extra: TasteSignal[] = [];
-  const trace: AgentStep[] = [{ tool: "get_area_taste", input: { location }, outcome: `${area.signals.length} signals (${area.source} data)` }];
+// Each kind must rest on the right kind of evidence.
+function fits(kind: string, sig: TasteSignal) {
+  if (kind === "menu") return sig.domain === "dining";
+  if (kind === "playlist") return sig.domain === "music";
+  return sig.domain === "film_tv" || sig.domain === "music";
+}
+
+// One true sentence per piece of evidence, from where the signal came from.
+export function groundedWhy(area: AreaTaste, pool: Map<string, TasteSignal>, sigs: TasteSignal[]): string {
+  const city = area.city;
+  const hood = area.label.split(",")[0].trim();
+  const byQlooId = new Map([...pool.values()].filter((s) => s.qlooId).map((s) => [s.qlooId!, s.name]));
+  const facts: string[] = [];
+  const list = (xs: string[]) => (xs.length > 1 ? `${xs.slice(0, -1).join(", ")} and ${xs.at(-1)}` : xs[0]);
+  const venues = sigs.filter((g) => g.id.startsWith("venue:")).map((g) => g.name);
+  if (venues.length) facts.push(`${list(venues)} ${venues.length > 1 ? "are" : "is"} among ${hood}'s most favoured venues on Qloo`);
+  const food = sigs.filter((g) => g.id.startsWith("food:")).map((g) => g.name);
+  if (food.length) facts.push(`Qloo tags ${hood}'s favoured venues as ${list(food)}`);
+  const media = sigs.filter((g) => /^(music|film_tv|brand):/.test(g.id)).map((g) => g.name);
+  if (media.length) facts.push(`${city} audiences over-index on ${list(media)}`);
+  const calls = new Map<string, TasteSignal[]>();
+  for (const g of sigs.filter((g) => /^[ra]\d+:/.test(g.id))) calls.set(g.id.split(":")[0], [...(calls.get(g.id.split(":")[0]) ?? []), g]);
+  for (const found of calls.values()) {
+    const input = found[0].evidence.input as { signals?: string[]; signal_tags?: string[]; target_type?: string };
+    const from = [...(input.signals ?? []), ...(input.signal_tags ?? [])].map((x) => byQlooId.get(x) ?? x);
+    const where = input.target_type === "place" ? ` in ${hood}` : "";
+    facts.push(from.length ? `fans of ${list(from)} in ${city} also favour ${list(found.map((g) => g.name))}${where}` : `${city} audiences favour ${list(found.map((g) => g.name))}${where}`);
+  }
+  const vibes = sigs.filter((g) => g.id.startsWith("vibe:")).map((g) => `"${g.name}"`);
+  if (vibes.length) facts.push(`Qloo describes fans of the area's venues as ${list(vibes)}`);
+  const text = facts.slice(0, 3).join("; ");
+  return text ? `${text[0].toUpperCase()}${text.slice(1)}.` : "";
+}
+
+// The Qloo tools both agents share. New results join `pool` (so they can be
+// cited) and `extra` (so the UI can show them); every call lands in `trace`.
+function qlooTools(area: AreaTaste, pool: Map<string, TasteSignal>, extra: TasteSignal[], trace: AgentStep[], prefix = "r") {
   const live = qlooMode() === "live";
-  let calls = 0;
-  let fruitful = 0;
-  let nudged = false;
-  let retried = false;
+  const stats = { calls: 0, fruitful: 0 };
   const asked = new Map<string, string>();
 
   async function runTool(name: string, input: Record<string, unknown>): Promise<string> {
@@ -219,10 +243,10 @@ async function agentLoop(
       return JSON.stringify({ status: res.status, tags });
     }
     if (name === "qloo_recommend") {
-      if (calls >= 5) return "You have made enough Qloo calls; submit your suggestions now.";
+      if (stats.calls >= 5) return "You have made enough Qloo calls; submit your suggestions now.";
       const key = JSON.stringify([input.target_type, input.signals, input.signal_tags]);
       if (asked.has(key)) return `You already made this call: ${asked.get(key)}. Try a different lead.`;
-      const n = ++calls;
+      const n = ++stats.calls;
       // Models often pass signal ids or the neighbourhood; Qloo needs names and
       // resolves only cities as an audience (neighbourhoods work as a place filter).
       const city = area.city;
@@ -251,11 +275,11 @@ async function agentLoop(
       const domain = domainOf(String(input.target_type));
       // Drop what the area map already has, so deeper calls add something new.
       const known = new Set([...pool.values()].map((s) => s.name.toLowerCase()));
-      const found = toSignals(resultItems(res), domain, { operation: "recommend", input: qInput, source: "live" }, `r${n}`).filter(
+      const found = toSignals(resultItems(res), domain, { operation: "recommend", input: qInput, source: "live" }, `${prefix}${n}`).filter(
         (s) => !known.has(s.name.toLowerCase()) && (domain !== "dining" || isLocalVenue(s.name)),
       );
       found.forEach((s) => pool.has(s.id) || (pool.set(s.id, s), extra.push(s)));
-      if (found.length) fruitful++;
+      if (found.length) stats.fruitful++;
       const label = input.purpose ? `${input.purpose}: ` : "";
       const shown = { ...qInput, signals: (Array.isArray(input.signals) ? input.signals : []).map((x) => byRef(x)?.name ?? x) };
       asked.set(key, found.length ? found.map((s) => s.name).join(", ") : "no new results");
@@ -265,6 +289,23 @@ async function agentLoop(
     }
     return `Unknown tool ${name}.`;
   }
+
+  return { runTool, stats, live };
+}
+
+async function agentLoop(
+  area: AreaTaste,
+  location: string,
+  menu: string[],
+  onStep: (text: string) => Promise<unknown> | void,
+  model: string,
+): Promise<AnalyzeResult> {
+  const pool = new Map(area.signals.map((s) => [s.id, s]));
+  const extra: TasteSignal[] = [];
+  const trace: AgentStep[] = [{ tool: "get_area_taste", input: { location }, outcome: `${area.signals.length} signals (${area.source} data)` }];
+  const { runTool, stats, live } = qlooTools(area, pool, extra, trace);
+  let nudged = false;
+  let retried = false;
 
   const messages: Message[] = [
     {
@@ -308,7 +349,7 @@ async function agentLoop(
       const input = (use.input ?? {}) as Record<string, unknown>;
       if (use.name === "submit_suggestions") {
         // Push back once if it skipped the deeper Qloo work.
-        if (live && fruitful < MIN_DEEP_CALLS && !nudged) {
+        if (live && stats.fruitful < MIN_DEEP_CALLS && !nudged) {
           nudged = true;
           trace.push({ tool: "submit_suggestions", input: {}, outcome: "sent back: dig deeper with Qloo first" });
           results.push({
@@ -346,39 +387,6 @@ async function agentLoop(
 
   type Submitted = { summary: string; suggestions: Suggestion[] | string };
 
-  // Each kind must rest on the right kind of evidence.
-  function fits(kind: string, sig: TasteSignal) {
-    if (kind === "menu") return sig.domain === "dining";
-    if (kind === "playlist") return sig.domain === "music";
-    return sig.domain === "film_tv" || sig.domain === "music";
-  }
-
-  // One true sentence per piece of evidence, from where the signal came from.
-  function groundedWhy(sigs: TasteSignal[]): string {
-    const city = area.city;
-    const hood = area.label.split(",")[0].trim();
-    const byQlooId = new Map([...pool.values()].filter((s) => s.qlooId).map((s) => [s.qlooId!, s.name]));
-    const facts: string[] = [];
-    const list = (xs: string[]) => (xs.length > 1 ? `${xs.slice(0, -1).join(", ")} and ${xs.at(-1)}` : xs[0]);
-    const venues = sigs.filter((g) => g.id.startsWith("venue:")).map((g) => g.name);
-    if (venues.length) facts.push(`${list(venues)} ${venues.length > 1 ? "are" : "is"} among ${hood}'s most favoured venues on Qloo`);
-    const food = sigs.filter((g) => g.id.startsWith("food:")).map((g) => g.name);
-    if (food.length) facts.push(`Qloo tags ${hood}'s favoured venues as ${list(food)}`);
-    const media = sigs.filter((g) => /^(music|film_tv|brand):/.test(g.id)).map((g) => g.name);
-    if (media.length) facts.push(`${city} audiences over-index on ${list(media)}`);
-    const calls = new Map<string, TasteSignal[]>();
-    for (const g of sigs.filter((g) => /^r\d+:/.test(g.id))) calls.set(g.id.split(":")[0], [...(calls.get(g.id.split(":")[0]) ?? []), g]);
-    for (const found of calls.values()) {
-      const input = found[0].evidence.input as { signals?: string[]; signal_tags?: string[]; target_type?: string };
-      const from = [...(input.signals ?? []), ...(input.signal_tags ?? [])].map((x) => byQlooId.get(x) ?? x);
-      const where = input.target_type === "place" ? ` in ${hood}` : "";
-      facts.push(from.length ? `fans of ${list(from)} in ${city} also favour ${list(found.map((g) => g.name))}${where}` : `${city} audiences favour ${list(found.map((g) => g.name))}${where}`);
-    }
-    const vibes = sigs.filter((g) => g.id.startsWith("vibe:")).map((g) => `"${g.name}"`);
-    if (vibes.length) facts.push(`Qloo describes fans of the area's venues as ${list(vibes)}`);
-    const text = facts.slice(0, 3).join("; ");
-    return text ? `${text[0].toUpperCase()}${text.slice(1)}.` : "";
-  }
   function finish(out: Submitted, final = false): { ok: true; result: AnalyzeResult } | { ok: false; reason: string } {
     // Validate here: Converse does not enforce the tool schema. Models sometimes
     // send the array as a JSON string, or cite signal names instead of ids.
@@ -399,7 +407,7 @@ async function agentLoop(
         const evidence = [...new Set(cited.map(toId).filter((id): id is string => !!id))];
         // "why" is written from the cited Qloo results, not the model's prose,
         // so it never claims a link the data does not show.
-        return { kind: s.kind, title: s.title, pitch: s.pitch, why: groundedWhy(evidence.map((id) => pool.get(id)!)), evidence };
+        return { kind: s.kind, title: s.title, pitch: s.pitch, why: groundedWhy(area, pool, evidence.map((id) => pool.get(id)!)), evidence };
       })
       .filter((s) => s.evidence.some((id) => fits(s.kind, pool.get(id)!)));
     const count = (k: string) => suggestions.filter((s) => s.kind === k).length;
@@ -407,7 +415,7 @@ async function agentLoop(
       const need: Record<string, number> = { menu: 2, playlist: 1, theme_night: 1 };
       for (const t of analyze(area, menu).suggestions) {
         if (count(t.kind) >= need[t.kind]) continue;
-        suggestions.push({ ...t, why: groundedWhy(t.evidence.map((id) => pool.get(id)!).filter(Boolean)) });
+        suggestions.push({ ...t, why: groundedWhy(area, pool, t.evidence.map((id) => pool.get(id)!).filter(Boolean)) });
         trace.push({ tool: "template", input: { kind: t.kind }, outcome: `filled missing ${t.kind.replace("_", " ")}` });
       }
     }
@@ -420,4 +428,143 @@ async function agentLoop(
     trace.push({ tool: "submit_suggestions", input: {}, outcome: `${suggestions.length} suggestions` });
     return { ok: true, result: { area: { ...area, signals: [...area.signals, ...extra] }, suggestions, writer: "bedrock", model, summary: typeof out.summary === "string" ? out.summary : undefined, trace } };
   }
+}
+
+// Follow-up questions on a finished analysis ("Why not pizza?", "Make it
+// cheaper"). Same Qloo tools; the answer must cite signal ids, and any new or
+// revised ideas go through the same evidence checks.
+export interface AskResult {
+  answer: string;
+  why: string;
+  evidence: string[];
+  suggestions: Suggestion[];
+  extra: TasteSignal[];
+  trace: AgentStep[];
+  model: string;
+}
+
+const ASK_SYSTEM = `You are Localtaste, a taste advisor for an independent café. The owner already has your suggestions and the area's Qloo signals, and now asks a follow-up question.
+Answer it with Qloo data:
+- Use qloo_recommend (at most 3 calls) or qloo_find_tags when the question needs data you do not have yet. Pass known signals by id.
+- Finish by calling answer once: 2-4 plain sentences, the signal ids that support it in "evidence", and, only if the question asks for new or changed ideas, up to 3 "suggestions" in the same shape as before (kind, title, pitch, evidence).
+- If the data does not support what they ask, say so plainly and suggest the closest supported alternative.
+- What a venue serves comes only from its Qloo description in the signals; never guess.
+- Signals are aggregate affinities; never describe individuals.`;
+
+const ASK_TOOLS: Tool[] = [
+  ...tools.filter((t) => t.toolSpec?.name !== "submit_suggestions"),
+  {
+    toolSpec: {
+      name: "answer",
+      description: "Give the owner your answer. Call once, at the end.",
+      inputSchema: {
+        json: {
+          type: "object",
+          properties: {
+            answer: { type: "string" },
+            evidence: { type: "array", items: { type: "string" } },
+            suggestions: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  kind: { type: "string", enum: ["menu", "playlist", "theme_night"] },
+                  title: { type: "string" },
+                  pitch: { type: "string" },
+                  evidence: { type: "array", items: { type: "string" } },
+                },
+                required: ["kind", "title", "pitch", "evidence"],
+              },
+            },
+          },
+          required: ["answer", "evidence"],
+        } as never,
+      },
+    },
+  },
+];
+
+export async function askAgent(
+  prior: AnalyzeResult,
+  menu: string[],
+  question: string,
+  opts: { onStep?: (text: string) => Promise<unknown> | void; model?: string } = {},
+): Promise<AskResult> {
+  if (!llmAvailable()) throw new Error("The agent is not available right now; try again shortly.");
+  const model = opts.model ?? MODEL;
+  const onStep = opts.onStep ?? (() => {});
+  const area = prior.area;
+  const pool = new Map(area.signals.map((s) => [s.id, s]));
+  const extra: TasteSignal[] = [];
+  const trace: AgentStep[] = [];
+  const { runTool } = qlooTools(area, pool, extra, trace, "a");
+
+  const messages: Message[] = [
+    {
+      role: "user",
+      content: [
+        {
+          text: [
+            `Café area: ${area.label} (city: ${area.city}). Current menu: ${menu.join("; ") || "(not given)"}`,
+            "Signals (id | name | domain | scores | tags):",
+            ...area.signals.map(line),
+            "",
+            "Suggestions you already gave:",
+            ...prior.suggestions.map((s) => `- [${s.kind}] ${s.title}: ${s.pitch}`),
+            "",
+            `Owner's question: ${question}`,
+          ].join("\n"),
+        },
+      ],
+    },
+  ];
+
+  for (let turn = 0; turn < 6; turn++) {
+    const response = await bedrock().send(
+      new ConverseCommand({ modelId: model, system: [{ text: ASK_SYSTEM }], messages, toolConfig: { tools: ASK_TOOLS }, inferenceConfig: { maxTokens: 3000, temperature: 0.4 } }),
+    );
+    const content: ContentBlock[] = response.output?.message?.content ?? [];
+    messages.push({ role: "assistant", content });
+    const uses = content.flatMap((b) => (b.toolUse ? [b.toolUse] : []));
+    const final = uses.find((u) => u.name === "answer");
+    if (final) {
+      const out = (final.input ?? {}) as { answer?: string; evidence?: unknown; suggestions?: unknown };
+      const ids = (v: unknown) => [...new Set((Array.isArray(v) ? v : []).map((x) => findSignal(pool, x)?.id).filter((id): id is string => !!id))];
+      const evidence = ids(out.evidence);
+      const kinds = new Set(["menu", "playlist", "theme_night"]);
+      const suggestions = (Array.isArray(out.suggestions) ? (out.suggestions as Suggestion[]) : [])
+        .filter((g) => kinds.has(g?.kind) && typeof g.title === "string" && typeof g.pitch === "string")
+        .map((g) => {
+          const ev = ids(g.evidence);
+          return { kind: g.kind, title: g.title, pitch: g.pitch, why: groundedWhy(area, pool, ev.map((id) => pool.get(id)!)), evidence: ev };
+        })
+        .filter((g) => g.evidence.some((id) => fits(g.kind, pool.get(id)!)));
+      return {
+        answer: typeof out.answer === "string" ? out.answer : "",
+        why: groundedWhy(area, pool, evidence.map((id) => pool.get(id)!)),
+        evidence,
+        suggestions,
+        extra,
+        trace,
+        model,
+      };
+    }
+    if (!uses.length) {
+      const text = content.map((b) => b.text ?? "").join(" ").trim();
+      if (text) return { answer: text, why: "", evidence: [], suggestions: [], extra, trace, model };
+      throw new Error("The agent did not answer.");
+    }
+    const results: ContentBlock[] = [];
+    for (const use of uses) {
+      const input = (use.input ?? {}) as Record<string, unknown>;
+      await onStep(STEP_TEXT[use.name!]?.(input) ?? "Thinking…");
+      try {
+        results.push({ toolResult: { toolUseId: use.toolUseId, content: [{ text: await runTool(use.name!, input) }] } });
+      } catch (err) {
+        results.push({ toolResult: { toolUseId: use.toolUseId, content: [{ text: (err as Error).message }], status: "error" } });
+      }
+    }
+    messages.push({ role: "user", content: results });
+  }
+  throw new Error("The agent ran out of turns.");
 }

@@ -1,7 +1,6 @@
 import { defineBackend } from "@aws-amplify/backend";
 import { Duration, RemovalPolicy, Stack } from "aws-cdk-lib";
 import { AttributeType, BillingMode, Table } from "aws-cdk-lib/aws-dynamodb";
-import { PolicyStatement } from "aws-cdk-lib/aws-iam";
 import { SqsEventSource } from "aws-cdk-lib/aws-lambda-event-sources";
 import { Queue } from "aws-cdk-lib/aws-sqs";
 import { auth } from "./auth/resource";
@@ -36,9 +35,3 @@ const qlooCache = new Table(stack, "QlooCache", {
 qlooCache.grantReadWriteData(worker);
 backend.analyzeWorker.addEnvironment("QLOO_CACHE_TABLE", qlooCache.tableName);
 
-worker.addToRolePolicy(
-  new PolicyStatement({
-    actions: ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"],
-    resources: ["arn:aws:bedrock:*::foundation-model/anthropic.*", `arn:aws:bedrock:*:${stack.account}:inference-profile/*`],
-  }),
-);

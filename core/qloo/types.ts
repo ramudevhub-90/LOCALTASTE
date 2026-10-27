@@ -6,8 +6,19 @@ export type Domain = "dining" | "music" | "film_tv" | "brand";
 export const DOMAINS: readonly Domain[] = ["dining", "music", "film_tv", "brand"];
 
 // The Qloo workflow call that produced a signal: shown in the UI as "why this?".
+export type QlooOperation =
+  | "recommend"
+  | "rank"
+  | "describe"
+  | "where_popular"
+  | "compare_audiences"
+  | "entity_tags"
+  | "audience_demographics"
+  | "trends"
+  | "find_tags";
+
 export interface Evidence {
-  operation: "recommend" | "where_popular" | "compare_audiences" | "find_tags";
+  operation: QlooOperation;
   input: Record<string, unknown>;
   source: "sample" | "live";
 }
@@ -21,7 +32,11 @@ export interface TasteSignal {
   affinity: number;
   // How much higher than the city baseline, e.g. 1.8 = 80% above. Optional.
   lift?: number;
+  // Qloo global popularity, 0–1 (live data only).
+  popularity?: number;
   tags: string[];
+  // Short Qloo description, when present.
+  note?: string;
   evidence: Evidence;
 }
 

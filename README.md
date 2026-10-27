@@ -15,10 +15,19 @@ Results are aggregate neighbourhood affinities, never claims about individuals.
 
 > Built for the [Qloo Agentic Hackathon](https://qloo.devpost.com).
 
-## Status
+## How the agent works
 
-Day 0 skeleton. Qloo data is **sample data** (`QLOO_MODE=sample`) until the event API key arrives;
-the UI labels it as such. Suggestions are template-written; Claude on Amazon Bedrock takes over on Day 1.
+The worker runs a Claude tool-use loop (`core/agent-claude.ts`, model `claude-opus-5-5`) with Qloo workflows as tools:
+
+1. `get_area_taste` maps the neighbourhood with Qloo `recommend` (`signal_location`) for artists, TV shows and brands,
+   plus the favoured venues and the concepts (`entity_tags`) that characterize them.
+2. Claude digs further where it sharpens an idea, e.g. `qloo_recommend` with a top artist as a signal to find
+   places their fans like, or `qloo_find_tags` to turn a cuisine into a Qloo tag.
+3. It submits suggestions through a strict `submit_suggestions` tool. Every suggestion must cite signal ids from
+   the tool results; uncited suggestions are dropped, and the UI shows each cited signal with its Qloo call.
+
+Every tool call is recorded and shown under "How the agent worked". If Qloo or Claude is not configured, the app
+falls back to clearly labelled sample data and a deterministic template writer, so the demo never breaks.
 
 ## Architecture
 
@@ -29,7 +38,7 @@ Browser (React) ──startAnalysis mutation──► AppSync ──► start-an
       ▲                                                                            │
       └──── onUpdate subscription (progress + result) ◄── AppSync ◄── analyze-worker Lambda
                                                                        ├─ Qloo (@qloo/qloo-harness, in-process)
-                                                                       ├─ Bedrock (Claude)
+                                                                       ├─ Claude (tool-use agent loop)
                                                                        └─ DynamoDB cache of Qloo responses
 ```
 
@@ -54,10 +63,11 @@ npm run dev                                                  # http://localhost:
 Deploy the front end to Amplify Hosting: `AWS_PROFILE=<profile> scripts/deploy-web.sh`.
 Live demo: https://localtaste.revenuerush.in (no sign-up needed).
 
-The Qloo key is an Amplify secret (stored in SSM), never in the repo or the browser:
+The Qloo and Anthropic keys are Amplify secrets (stored in SSM), never in the repo or the browser:
 
 ```sh
 npx ampx sandbox secret set QLOO_API_KEY --identifier demo
+npx ampx sandbox secret set ANTHROPIC_API_KEY --identifier demo
 ```
 
 ## License

@@ -2,7 +2,7 @@
   "name": "localtaste",
   "version": "0.1.0",
   "private": true,
-  "description": "A taste advisor for independent caf\u00e9s and restaurants, powered by Qloo neighbourhood affinities.",
+  "description": "A taste advisor for independent cafés and restaurants, powered by Qloo neighbourhood affinities.",
   "license": "MIT",
   "type": "module",
   "engines": {
@@ -16,6 +16,7 @@
     "check:core": "node scripts/check-core.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^1.3.0",
     "@qloo/qloo-harness": "^0.1.26",
     "aws-amplify": "^6.22.2"
   },

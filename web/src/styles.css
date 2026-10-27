@@ -75,3 +75,10 @@ button.link { background: none; color: var(--accent); padding: 0; }
 .cmp ul { margin: 0; padding-left: 18px; }
 .cmp small { color: var(--muted); }
 .foot { color: var(--muted); font-size: 0.85rem; text-align: center; }
+
+.summary { margin: 0 0 1rem; color: var(--muted); }
+.trace { margin-top: 1rem; font-size: 0.9rem; }
+.trace summary { cursor: pointer; }
+.trace ol { padding-left: 1.25rem; }
+.trace li { margin: 0.35rem 0; overflow-wrap: anywhere; }
+.trace code { font-size: 0.8rem; }

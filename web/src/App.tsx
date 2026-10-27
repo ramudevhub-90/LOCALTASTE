@@ -67,17 +67,33 @@ function Results({ result }: { result: RunResult }) {
       <section className="card">
         <div className="row">
           <h2>Taste map · {result.area.label}</h2>
-          {result.area.source === "sample" && <span className="pill warn">Sample data</span>}
+          {result.area.source === "sample" ? <span className="pill warn">Sample data</span> : <span className="pill">Live Qloo</span>}
         </div>
         <TasteMap area={result.area} />
       </section>
       <section className="card">
-        <h2>Suggestions</h2>
+        <div className="row">
+          <h2>Suggestions</h2>
+          <span className="pill">{result.writer === "claude" ? "Written by Claude" : "Template writer"}</span>
+        </div>
+        {result.summary && <p className="summary">{result.summary}</p>}
         <div className="grid">
           {result.suggestions.map((s, i) => (
             <SuggestionCard key={i} s={s} signals={s.evidence.map((id) => byId.get(id)).filter((x): x is TasteSignal => !!x)} />
           ))}
         </div>
+        {result.trace && result.trace.length > 0 && (
+          <details className="trace">
+            <summary>How the agent worked ({result.trace.length} steps)</summary>
+            <ol>
+              {result.trace.map((t, i) => (
+                <li key={i}>
+                  <code>{t.tool}</code> {Object.keys(t.input).length > 0 && <code>{JSON.stringify(t.input)}</code>} → {t.outcome}
+                </li>
+              ))}
+            </ol>
+          </details>
+        )}
       </section>
     </>
   );
@@ -93,8 +109,9 @@ function TasteMap({ area }: { area: AreaTaste }) {
           {area.signals
             .filter((s) => s.domain === d)
             .sort((a, b) => b.affinity - a.affinity)
+            .slice(0, 8)
             .map((s) => (
-              <div key={s.id} className="bar" title={`Affinity ${s.affinity.toFixed(2)}`}>
+              <div key={s.id} className="bar" title={`Affinity ${s.affinity.toFixed(2)}${s.popularity !== undefined ? ` · global popularity ${s.popularity.toFixed(2)}` : ""}`}>
                 <span className="fill" style={{ width: `${s.affinity * 100}%` }} />
                 <span className="name">{s.name}</span>
                 {s.lift && s.lift > 1 && <span className="lift">×{s.lift.toFixed(1)}</span>}
@@ -122,6 +139,7 @@ function SuggestionCard({ s, signals }: { s: Suggestion; signals: TasteSignal[] 
             <li key={sig.id}>
               <strong>{sig.name}</strong> · affinity {sig.affinity.toFixed(2)}
               {sig.lift ? `, ${sig.lift.toFixed(1)}× city baseline` : ""}
+              {sig.popularity !== undefined ? `, global popularity ${sig.popularity.toFixed(2)}` : ""}
               <code>
                 qloo exec {sig.evidence.operation} {JSON.stringify(sig.evidence.input)}
               </code>

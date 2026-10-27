@@ -1,6 +1,6 @@
-// Turns neighbourhood taste signals plus the owner's menu into suggestions.
-// Day 0: deterministic templates. Day 1: Claude plans the Qloo queries and
-// writes the suggestions; every suggestion must still cite signal ids.
+// Deterministic suggestion writer: turns neighbourhood taste signals plus the
+// owner's menu into suggestions. Used when Claude is unavailable, and as the
+// fallback if the Claude agent (agent-claude.ts) fails.
 
 import type { AreaTaste, Domain, TasteSignal } from "./qloo/index.ts";
 
@@ -14,10 +14,20 @@ export interface Suggestion {
   evidence: string[];
 }
 
+// One tool call the agent made, shown in the UI as the agent's working.
+export interface AgentStep {
+  tool: string;
+  input: Record<string, unknown>;
+  outcome: string;
+}
+
 export interface AnalyzeResult {
   area: AreaTaste;
   suggestions: Suggestion[];
   writer: "template" | "claude";
+  // Short overview from the agent (Claude only).
+  summary?: string;
+  trace?: AgentStep[];
 }
 
 const score = (s: TasteSignal) => s.affinity * (s.lift ?? 1);
@@ -30,7 +40,7 @@ function onMenu(menu: string[], s: TasteSignal): boolean {
 }
 
 export function analyze(area: AreaTaste, menu: string[]): AnalyzeResult {
-  const dining = ranked(area, "dining");
+  const dining = ranked(area, "dining").filter((s) => !s.tags.includes("venue"));
   const music = ranked(area, "music");
   const film = ranked(area, "film_tv");
   const suggestions: Suggestion[] = [];

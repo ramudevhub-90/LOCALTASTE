@@ -1,4 +1,4 @@
-import { BedrockRuntimeClient, ConverseCommand } from "@aws-sdk/client-bedrock-runtime";
+import Anthropic from "@anthropic-ai/sdk";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, GetCommand, PutCommand } from "@aws-sdk/lib-dynamodb";
 import { getAmplifyDataClientConfig } from "@aws-amplify/backend/function/runtime";
@@ -6,8 +6,8 @@ import { env } from "$amplify/env/analyze-worker";
 import { Amplify } from "aws-amplify";
 import { generateClient } from "aws-amplify/data";
 import type { SQSBatchResponse, SQSEvent } from "aws-lambda";
-import { analyze } from "../../../core/agent.ts";
-import { QlooError, type TasteCache, compareAreas, getAreaTaste, qlooExec, qlooMode } from "../../../core/qloo/index.ts";
+import { claudeAvailable, runAgent } from "../../../core/agent-claude.ts";
+import { QlooError, type TasteCache, compareAreas, qlooExec, qlooMode } from "../../../core/qloo/index.ts";
 import type { Schema } from "../../data/resource";
 
 const { resourceConfig, libraryOptions } = await getAmplifyDataClientConfig(env);
@@ -51,9 +51,9 @@ async function run(jobId: string) {
 
   try {
     await step("Mapping neighbourhood taste…");
-    const area = await getAreaTaste(job.location, cache);
-    await step("Ranking menu ideas…");
-    const analysis = analyze(area, (job.menu ?? []).filter((m): m is string => !!m));
+    const menu = (job.menu ?? []).filter((m): m is string => !!m);
+    // Compare jobs only need the comparison, so they skip the Claude run.
+    const analysis = await runAgent(job.location, menu, { cache, onStep: step, useClaude: !job.compareWith });
     const comparison = job.compareWith ? (await step("Comparing areas…"), await compareAreas(job.location, job.compareWith, cache)) : undefined;
     await client.models.AnalysisJob.update({
       id: jobId,
@@ -72,7 +72,7 @@ async function run(jobId: string) {
   }
 }
 
-// Invoked directly (not via SQS) to check the harness and Bedrock from inside Lambda.
+// Invoked directly (not via SQS) to check the Qloo harness and Claude from inside Lambda.
 async function selfTest(dummyKey?: string) {
   if (dummyKey && !process.env.QLOO_API_KEY) process.env.QLOO_API_KEY = dummyKey;
   const out: Record<string, unknown> = { node: process.version, home: process.env.HOME, qlooMode: qlooMode() };
@@ -82,18 +82,20 @@ async function selfTest(dummyKey?: string) {
   } catch (err) {
     out.qloo = { ok: false, code: (err as QlooError).code, message: (err as Error).message };
   }
-  try {
-    const bedrock = new BedrockRuntimeClient();
-    const res = await bedrock.send(
-      new ConverseCommand({
-        modelId: process.env.BEDROCK_MODEL_ID,
-        messages: [{ role: "user", content: [{ text: "Reply with the single word: ready" }] }],
-        inferenceConfig: { maxTokens: 5 },
-      }),
-    );
-    out.bedrock = { ok: true, model: process.env.BEDROCK_MODEL_ID, reply: res.output?.message?.content?.[0]?.text };
-  } catch (err) {
-    out.bedrock = { ok: false, model: process.env.BEDROCK_MODEL_ID, error: (err as Error).name, message: (err as Error).message };
+  out.claude = { available: claudeAvailable(), model: process.env.CLAUDE_MODEL };
+  if (claudeAvailable()) {
+    try {
+      const res = await new Anthropic().messages.create({
+        model: process.env.CLAUDE_MODEL ?? "claude-opus-5-5",
+        max_tokens: 64,
+        output_config: { effort: "low" },
+        messages: [{ role: "user", content: "Reply with the single word: ready" }],
+      });
+      const text = res.content.find((b) => b.type === "text");
+      out.claude = { ...(out.claude as object), ok: true, reply: text?.type === "text" ? text.text : res.stop_reason };
+    } catch (err) {
+      out.claude = { ...(out.claude as object), ok: false, error: (err as Error).name, message: (err as Error).message };
+    }
   }
   return out;
 }

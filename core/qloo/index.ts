@@ -6,7 +6,7 @@ import type { AreaComparison, AreaTaste, QlooSource, TasteSignal } from "./types
 
 export * from "./types.ts";
 export { SAMPLE_AREAS } from "./sample.ts";
-export { qlooExec } from "./live.ts";
+export { DOMAIN_TARGET, domainOf, qlooExec, resultItems, toSignals, type QlooItem, type QlooResult } from "./live.ts";
 
 // Where Qloo responses are cached to protect the event quota. Lambda passes a
 // DynamoDB-backed cache; the default is per-process memory.
@@ -28,9 +28,11 @@ export const memoryCache: TasteCache = {
 
 const TTL_SECONDS = 7 * 24 * 60 * 60;
 
+// An unset Amplify secret stays as a "<value will be resolved…>" placeholder.
+export const hasSecret = (value: string | undefined) => !!value && value !== "unset" && !value.startsWith("<");
+
 function source(): QlooSource {
-  const key = process.env.QLOO_API_KEY;
-  return process.env.QLOO_MODE === "live" && key && key !== "unset" ? liveSource : sampleSource;
+  return process.env.QLOO_MODE === "live" && hasSecret(process.env.QLOO_API_KEY) ? liveSource : sampleSource;
 }
 
 export const qlooMode = () => source().mode;

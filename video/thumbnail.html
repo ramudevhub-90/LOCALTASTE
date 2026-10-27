@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Localtaste thumbnail</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@600&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet" />
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 1280px; height: 720px; overflow: hidden; }
+  body { background: #0b2a22; color: #e6f2ed; font-family: "Space Grotesk", system-ui, sans-serif; position: relative; }
+  body::before { content: ""; position: absolute; inset: 0; background: radial-gradient(700px 500px at 100% 0%, rgb(63 209 163 / .18), transparent 60%), radial-gradient(600px 420px at 0% 100%, rgb(224 161 0 / .16), transparent 60%); }
+  .left { position: absolute; left: 64px; top: 70px; width: 640px; }
+  .brand { display: flex; align-items: center; gap: 16px; font-weight: 700; font-size: 44px; letter-spacing: -0.01em; }
+  .brand svg { width: 64px; height: 64px; }
+  h1 { margin-top: 54px; font-size: 84px; line-height: 0.98; letter-spacing: -0.035em; }
+  h1 em { font-style: normal; color: #e0a100; }
+  .tags { position: absolute; left: 64px; bottom: 64px; display: flex; gap: 14px; }
+  .tag { font: 600 22px "IBM Plex Mono", monospace; padding: 10px 16px; border-radius: 8px; background: rgb(255 255 255 / .08); border: 2px solid rgb(255 255 255 / .16); }
+  .tag.q { color: #0b2a22; background: #e0a100; border-color: #e0a100; }
+  .shot { position: absolute; right: -40px; top: 120px; width: 600px; border-radius: 14px; overflow: hidden; box-shadow: 0 30px 80px rgb(0 0 0 / .5); transform: rotate(-3deg); border: 3px solid rgb(255 255 255 / .9); }
+  .shot img { display: block; width: 100%; }
+  .shot2 { top: 410px; right: 70px; width: 470px; transform: rotate(2deg); }
+</style>
+</head>
+<body>
+  <div class="left">
+    <div class="brand">
+      <svg viewBox="0 0 32 32"><path d="M16 2c-6 0-11 4.6-11 10.6C5 21 16 30 16 30s11-9 11-17.4C27 6.6 22 2 16 2z" fill="#e0a100"/><path d="M11 11h10v3.5a5 5 0 0 1-10 0z" fill="#0b2a22"/><path d="M21 12h1.2a1.8 1.8 0 0 1 0 3.6H21" fill="none" stroke="#0b2a22" stroke-width="1.4"/></svg>
+      Localtaste
+    </div>
+    <h1>What does your <em>neighbourhood</em> love?</h1>
+  </div>
+  <div class="shot"><img src="../docs/screenshots/02-taste-map.png" alt="" /></div>
+  <div class="shot shot2"><img src="../docs/screenshots/05-why-this.png" alt="" /></div>
+  <div class="tags"><span class="tag q">Qloo</span><span class="tag">Amazon Nova AI agent</span><span class="tag">Any address</span></div>
+</body>
+</html>

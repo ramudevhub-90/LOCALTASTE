@@ -5,9 +5,14 @@ web/dist/
 !.env.example
 *.log
 .DS_Store
-# Amplify
+# Amplify (old sandbox files)
 .amplify/
 amplify_outputs*
 amplifyconfiguration*
 video/node_modules/
 video/out/
+
+# CDK
+infra/cdk.out/
+web/src/backend.json
+infra/outputs.json

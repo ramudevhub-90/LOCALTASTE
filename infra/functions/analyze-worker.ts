@@ -1,20 +1,24 @@
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, GetCommand, PutCommand } from "@aws-sdk/lib-dynamodb";
-import { getAmplifyDataClientConfig } from "@aws-amplify/backend/function/runtime";
-import { env } from "$amplify/env/analyze-worker";
-import { Amplify } from "aws-amplify";
-import { generateClient } from "aws-amplify/data";
+import { GetParameterCommand, SSMClient } from "@aws-sdk/client-ssm";
 import type { SQSBatchResponse, SQSEvent } from "aws-lambda";
 import { ConverseCommand } from "@aws-sdk/client-bedrock-runtime";
-import type { AnalyzeResult } from "../../../core/agent.ts";
-import { MODEL, askAgent, bedrock, llmAvailable, runAgent } from "../../../core/agent-bedrock.ts";
-import { type VenueRef, areaCrowd, branchAreas, competitor, crowd, findVenue, standing } from "../../../core/insights.ts";
-import { type AreaTaste, QlooError, type QlooOperation, type TasteCache, compareAreas, getAreaTaste, qlooExec, qlooMode } from "../../../core/qloo/index.ts";
-import type { Schema } from "../../data/resource";
+import type { AnalyzeResult } from "../../core/agent.ts";
+import { MODEL, askAgent, bedrock, llmAvailable, runAgent } from "../../core/agent-bedrock.ts";
+import { type VenueRef, areaCrowd, branchAreas, competitor, crowd, findVenue, standing } from "../../core/insights.ts";
+import { type AreaTaste, QlooError, type QlooOperation, type TasteCache, compareAreas, getAreaTaste, qlooExec, qlooMode } from "../../core/qloo/index.ts";
+import { getJob, updateJob } from "./jobs.ts";
 
-const { resourceConfig, libraryOptions } = await getAmplifyDataClientConfig(env);
-Amplify.configure(resourceConfig, libraryOptions);
-const client = generateClient<Schema>();
+// The Qloo key is a SecureString parameter (/localtaste/qloo-api-key), read
+// once per cold start. Until it is set, the worker falls back to sample data.
+if (process.env.QLOO_KEY_PARAM && !process.env.QLOO_API_KEY) {
+  const ssm = new SSMClient();
+  const key = await ssm
+    .send(new GetParameterCommand({ Name: process.env.QLOO_KEY_PARAM, WithDecryption: true }))
+    .then((r) => r.Parameter?.Value)
+    .catch((err) => console.warn("Qloo key not readable; using sample data", (err as Error).name));
+  if (key) process.env.QLOO_API_KEY = key;
+}
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient());
 const cache: TasteCache = {
@@ -66,9 +70,9 @@ export const handler = async (event: SQSEvent | SelfTest): Promise<SQSBatchRespo
 };
 
 async function run(jobId: string) {
-  const { data: job } = await client.models.AnalysisJob.get({ id: jobId });
+  const job = await getJob(jobId);
   if (!job || job.status === "DONE") return;
-  const step = (text: string) => client.models.AnalysisJob.update({ id: jobId, status: "RUNNING", step: text });
+  const step = (text: string) => updateJob({ id: jobId, status: "RUNNING", step: text });
   const menu = (job.menu ?? []).filter((m): m is string => !!m);
 
   try {
@@ -85,11 +89,11 @@ async function run(jobId: string) {
       const comparison = job.compareWith ? (await step("Comparing areas…"), await compareAreas(job.location, job.compareWith, cache)) : undefined;
       result = { ...analysis, comparison, insights };
     }
-    await client.models.AnalysisJob.update({ id: jobId, status: "DONE", step: "Done", result: JSON.stringify(result) });
+    await updateJob({ id: jobId, status: "DONE", step: "Done", result: JSON.stringify(result) });
   } catch (err) {
     console.error(err);
     const known = err instanceof QlooError || (err instanceof Error && err.name === "UserError");
-    await client.models.AnalysisJob.update({
+    await updateJob({
       id: jobId,
       status: "FAILED",
       step: "Failed",
@@ -132,9 +136,9 @@ async function retry<T>(what: string, fn: () => Promise<T>): Promise<T | undefin
 }
 
 async function followUp(kind: string, parentId: string, input: string, menu: string[], step: (t: string) => Promise<unknown>) {
-  const { data: parent } = await client.models.AnalysisJob.get({ id: parentId });
+  const parent = await getJob(parentId);
   if (!parent?.result) throw new UserError("Run the analysis first.");
-  const prior = JSON.parse(parent.result as string) as AnalyzeResult & { insights?: { cafe?: VenueRef } };
+  const prior = JSON.parse(parent.result) as AnalyzeResult & { insights?: { cafe?: VenueRef } };
   const area = prior.area;
   if (area.source !== "live") throw new UserError("This needs live Qloo data.");
   if (kind === "branch") {

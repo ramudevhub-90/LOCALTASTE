@@ -55,7 +55,7 @@ or *Silver Lake, Los Angeles*. Results are aggregate neighbourhood affinities, n
 
 ## Architecture
 
-Serverless on AWS with [Amplify Gen 2](https://docs.amplify.aws/react/):
+Serverless on AWS, one CDK stack (`infra/stack.ts`) with every resource named `localtaste-…`:
 
 ```
 Browser (React) ──mutation──► AppSync ──► start Lambda ──► SQS ──► worker Lambda
@@ -65,7 +65,8 @@ Browser (React) ──mutation──► AppSync ──► start Lambda ──►
                                                                     └─ DynamoDB: 7-day cache of Qloo area data
 ```
 
-- **Cognito** guest access, so anyone can try it without signing up.
+- **Cognito identity pool** guest access, so anyone can try it without signing up. The guest role may call only the
+  public API fields; only the worker can update a job.
 - **AppSync + DynamoDB** job records; the worker streams progress back over a subscription.
 - **SQS** because an agent run (20–40 s) is longer than an AppSync resolver may take.
 - **Rate limits** per visitor and overall, so the public demo can't burn the Qloo quota.
@@ -79,16 +80,17 @@ Requires Node 22.19+ and an AWS account bootstrapped for CDK, with Bedrock acces
 
 ```sh
 npm install
-npx ampx sandbox secret set QLOO_API_KEY --identifier demo     # stored in SSM, never in the repo or browser
-AWS_PROFILE=<profile> npm run sandbox                            # deploys the backend, writes amplify_outputs.json
-npm run dev                                                       # http://localhost:5173
+# The Qloo key as an SSM SecureString, never in the repo or browser:
+read -rs "K?Qloo key: " && aws ssm put-parameter --name /localtaste/qloo-api-key --type SecureString --overwrite --value "$K"; unset K
+AWS_PROFILE=<profile> npm run deploy          # the localtaste CDK stack (us-east-1)
+AWS_PROFILE=<profile> npm run deploy:web      # writes web/src/backend.json from the stack outputs, builds, uploads
+npm run dev                                   # http://localhost:5173
 ```
 
 If Bedrock model access lives in another account, create an invoke-only role there whose trust policy names the
-worker's role, and deploy with `LOCALTASTE_BEDROCK_ROLE_ARN=<role ARN>`. Without a Qloo key the app runs on clearly
+worker's role (`localtaste-analyze-worker`), and set its ARN as `bedrockRoleArn` in `cdk.json`. Without a Qloo key the app runs on clearly
 labelled sample data; without Bedrock it falls back to the deterministic writer, so it never breaks.
 
-Front end to Amplify Hosting: `AWS_PROFILE=<profile> scripts/deploy-web.sh`.
 Screenshots and the demo video are generated from the live app: `cd video && npm install && npm run shots`.
 
 ## Licence

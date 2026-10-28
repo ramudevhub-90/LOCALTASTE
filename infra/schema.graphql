@@ -1,0 +1,55 @@
+# Localtaste API. Visitors (Cognito identity pool guests, IAM auth) may only
+# start jobs, read a job, get address suggestions and subscribe to a job's
+# updates; updateAnalysisJob is for the worker's role. Field-level access is
+# set in the IAM policies (infra/stack.ts).
+
+enum JobStatus {
+  QUEUED
+  RUNNING
+  DONE
+  FAILED
+}
+
+# One agent run. kind: "analyze", or a follow-up on a finished analysis
+# (parentId): "branch", "competitor" or "ask" with its text in `input`.
+# `result` is the run's JSON, as a string.
+type AnalysisJob @aws_iam {
+  id: ID!
+  location: String!
+  menu: [String]
+  compareWith: String
+  cafe: String
+  kind: String
+  parentId: String
+  input: String
+  status: JobStatus
+  step: String
+  result: String
+  error: String
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+input UpdateAnalysisJobInput {
+  id: ID!
+  status: JobStatus
+  step: String
+  result: String
+  error: String
+}
+
+type Query {
+  getAnalysisJob(id: ID!): AnalysisJob @aws_iam
+  # Address suggestions while typing (Amazon Location autocomplete).
+  suggestPlaces(text: String!): [String] @aws_iam
+}
+
+type Mutation {
+  startAnalysis(location: String!, menu: [String], compareWith: String, cafe: String): AnalysisJob @aws_iam
+  startFollowUp(parentId: String!, kind: String!, input: String): AnalysisJob @aws_iam
+  updateAnalysisJob(input: UpdateAnalysisJobInput!): AnalysisJob @aws_iam
+}
+
+type Subscription {
+  onUpdateAnalysisJob(id: ID!): AnalysisJob @aws_subscribe(mutations: ["updateAnalysisJob"]) @aws_iam
+}

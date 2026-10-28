@@ -1,16 +1,11 @@
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import { SQSClient, SendMessageCommand } from "@aws-sdk/client-sqs";
-import { getAmplifyDataClientConfig } from "@aws-amplify/backend/function/runtime";
-import { env } from "$amplify/env/start-analysis";
-import { Amplify } from "aws-amplify";
-import { generateClient } from "aws-amplify/data";
 import type { AppSyncResolverEvent } from "aws-lambda";
-import type { Schema } from "../../data/resource";
+import { type Job, createJob, getJob } from "./jobs.ts";
 
-const { resourceConfig, libraryOptions } = await getAmplifyDataClientConfig(env);
-Amplify.configure(resourceConfig, libraryOptions);
-const client = generateClient<Schema>();
+// AppSync resolver for startAnalysis and startFollowUp: records the job and
+// enqueues it for the worker.
 const sqs = new SQSClient();
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient());
 
@@ -43,13 +38,11 @@ export const handler = async (event: AppSyncResolverEvent<Args>) => {
     throw new Error("That's a lot of runs in a short time. Please try again in a little while.");
 
   const args = event.arguments;
-  let job: Schema["AnalysisJob"]["createType"];
-  // Amplify's function resolvers put fieldName at the top level, not under info.
-  const field = (event as { fieldName?: string }).fieldName ?? event.info?.fieldName;
-  if (field === "startFollowUp") {
+  let job: Omit<Job, "id">;
+  if (event.info.fieldName === "startFollowUp") {
     const kind = clean(args.kind, 20);
     if (!FOLLOW_UPS.has(kind)) throw new Error("Unknown follow-up.");
-    const { data: parent } = await client.models.AnalysisJob.get({ id: clean(args.parentId, 64) });
+    const parent = await getJob(clean(args.parentId, 64));
     if (!parent || parent.status !== "DONE") throw new Error("Run the analysis first.");
     const input = clean(args.input, 300);
     if ((kind === "competitor" || kind === "ask") && !input) throw new Error(kind === "ask" ? "Type a question first." : "Enter the competitor's name.");
@@ -69,8 +62,7 @@ export const handler = async (event: AppSyncResolverEvent<Args>) => {
     };
   }
 
-  const { data: created, errors } = await client.models.AnalysisJob.create(job);
-  if (!created) throw new Error(errors?.[0]?.message ?? "Could not start the job.");
+  const created = await createJob(job);
   await sqs.send(new SendMessageCommand({ QueueUrl: process.env.QUEUE_URL, MessageBody: JSON.stringify({ jobId: created.id }) }));
   return created;
 };

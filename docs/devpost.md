@@ -31,7 +31,7 @@ It works in any city Qloo covers: Bengaluru, Brooklyn, Boulder, San Francisco, L
 - **The agent** runs on **Amazon Bedrock (Amazon Nova 2 Lite)** through the model-neutral Converse API, with Qloo workflows as tools. It gets the area's signals up front, each with an id, then makes 2–5 follow-up `recommend` calls of its own (places that fans of a top artist favour, artists that fans of a favourite venue like, shows for theme nights) before submitting suggestions through a structured tool.
 - **Guardrails in code**: each suggestion must cite the right kind of evidence (menu → food or venue, playlist → music, theme night → its show or artist). A weak submission is sent back once, and only missing kinds are filled from a deterministic writer. The *Why it fits* sentence is generated from the cited Qloo results, not the model's prose, so it can't overclaim.
 - **Amazon Location** geocodes the address so Qloo is asked about the right neighbourhood and city, and names the cells of Qloo's heatmaps for the branch finder.
-- **Serverless AWS with Amplify Gen 2**: Cognito guest access, AppSync with subscriptions streaming the agent's progress, SQS (agent runs outlast resolver timeouts), Lambda, DynamoDB, per-visitor rate limits. Bedrock is reached with an invoke-only cross-account IAM role, with no API keys anywhere.
+- **Serverless AWS in one CDK stack**: Cognito identity pool guest access, AppSync with subscriptions streaming the agent's progress, SQS (agent runs outlast resolver timeouts), Lambda, DynamoDB, per-visitor rate limits. Bedrock is reached with an invoke-only cross-account IAM role, with no API keys anywhere.
 - **Front end**: React + Vite, a café-dashboard design with light/dark themes and a print layout.
 
 ## Challenges we ran into
@@ -59,7 +59,7 @@ Qloo is at its best when its signals are chained: a neighbourhood's venues lead 
 
 ## Built with
 
-qloo · amazon-bedrock · amazon-nova · aws-amplify · aws-appsync · aws-lambda · amazon-sqs · amazon-dynamodb · amazon-cognito · amazon-location-service · react · vite · typescript
+qloo · amazon-bedrock · amazon-nova · aws-amplify · aws-appsync · aws-lambda · amazon-sqs · amazon-dynamodb · amazon-cognito · aws-cdk · amazon-location-service · react · vite · typescript
 
 ## Testing instructions
 

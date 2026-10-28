@@ -1,8 +1,7 @@
 // Browser side of the agent: start a job, then stream its progress over the
 // AppSync subscription. The browser never talks to Qloo or Bedrock directly.
 
-import { generateClient } from "aws-amplify/data";
-import type { Schema } from "../../amplify/data/resource";
+import { generateClient } from "aws-amplify/api";
 import type { AskResult } from "../../core/agent-bedrock.ts";
 import type { AnalyzeResult } from "../../core/agent.ts";
 import type { BranchArea, CompetitorReport, Crowd, Standing, VenueRef } from "../../core/insights.ts";
@@ -89,30 +88,62 @@ export const DEMO_AREAS = [
   "Jumeirah, Dubai",
 ];
 
-const client = generateClient<Schema>();
-type Job = Schema["AnalysisJob"]["type"];
+const client = generateClient();
+
+interface Job {
+  id: string;
+  status?: "QUEUED" | "RUNNING" | "DONE" | "FAILED" | null;
+  step?: string | null;
+  result?: string | null;
+  error?: string | null;
+}
+
+const JOB = "id status step result error";
+
+type Subscribable<T> = { subscribe(o: { next: (v: T) => void; error: (e: unknown) => void }): { unsubscribe(): void } };
+
+// Typed wrapper over AppSync's GraphQL API (infra/schema.graphql).
+async function gql<T>(query: string, variables: Record<string, unknown>): Promise<T> {
+  try {
+    const res = (await client.graphql({ query, variables: variables as never })) as { data: T };
+    return res.data;
+  } catch (err) {
+    const message = (err as { errors?: { message: string }[] }).errors?.[0]?.message;
+    throw new Error(message ?? (err as Error).message ?? "Something went wrong.");
+  }
+}
 
 export async function runAnalysis(
   input: { location: string; menu: string[]; compareWith?: string; cafe?: string },
   onStep: (step: string) => void,
 ): Promise<RunResult> {
-  const { data: job, errors } = await client.mutations.startAnalysis(input);
-  if (!job) throw new Error(errors?.[0]?.message ?? "Could not start the analysis.");
+  const { startAnalysis: job } = await gql<{ startAnalysis: Job }>(
+    `mutation ($location: String!, $menu: [String], $compareWith: String, $cafe: String) {
+      startAnalysis(location: $location, menu: $menu, compareWith: $compareWith, cafe: $cafe) { ${JOB} }
+    }`,
+    input,
+  );
   const result = await waitFor(job, onStep);
   return { ...(result as AnalyzeResult), jobId: job.id };
 }
 
 export async function runFollowUp<T>(parentId: string, kind: "branch" | "competitor" | "ask", input: string, onStep: (step: string) => void): Promise<T> {
-  const { data: job, errors } = await client.mutations.startFollowUp({ parentId, kind, input });
-  if (!job) throw new Error(errors?.[0]?.message ?? "Could not start that.");
+  const { startFollowUp: job } = await gql<{ startFollowUp: Job }>(
+    `mutation ($parentId: String!, $kind: String!, $input: String) {
+      startFollowUp(parentId: $parentId, kind: $kind, input: $input) { ${JOB} }
+    }`,
+    { parentId, kind, input },
+  );
   return (await waitFor(job, onStep)) as T;
 }
 
 // Address suggestions while typing, like a maps search box.
 export async function suggestPlaces(text: string): Promise<string[]> {
-  const { data } = await client.queries.suggestPlaces({ text });
+  const { suggestPlaces: data } = await gql<{ suggestPlaces: (string | null)[] | null }>(`query ($text: String!) { suggestPlaces(text: $text) }`, { text });
   return (data ?? []).filter((x): x is string => !!x);
 }
+
+const getJob = (id: string) => gql<{ getAnalysisJob: Job | null }>(`query ($id: ID!) { getAnalysisJob(id: $id) { ${JOB} } }`, { id }).then((d) => d.getAnalysisJob);
 
 function waitFor(job: Job, onStep: (step: string) => void): Promise<unknown> {
   onStep(job.step ?? "Queued");
@@ -125,17 +156,20 @@ function waitFor(job: Job, onStep: (step: string) => void): Promise<unknown> {
         settled = true;
         sub.unsubscribe();
         clearInterval(poll);
-        if (j.status === "DONE") resolve(JSON.parse(j.result as string));
+        if (j.status === "DONE") resolve(JSON.parse(j.result ?? "null"));
         else reject(new Error(j.error ?? "That didn't work."));
       }
     };
-    const sub = client.models.AnalysisJob.onUpdate({ filter: { id: { eq: job.id } } }).subscribe({
-      next: handle,
+    const updates = client.graphql({ query: `subscription ($id: ID!) { onUpdateAnalysisJob(id: $id) { ${JOB} } }`, variables: { id: job.id } }) as unknown as Subscribable<{
+      data: { onUpdateAnalysisJob: Job };
+    }>;
+    const sub = updates.subscribe({
+      next: ({ data }) => handle(data.onUpdateAnalysisJob),
       error: (err) => !settled && reject(err),
     });
     // The subscription's socket can connect after a fast job has finished, so
     // also poll occasionally until one of the two sees a final status.
-    const check = () => client.models.AnalysisJob.get({ id: job.id }).then(({ data }) => handle(data));
+    const check = () => getJob(job.id).then(handle, () => {});
     const poll = setInterval(check, 3000);
     check();
   });

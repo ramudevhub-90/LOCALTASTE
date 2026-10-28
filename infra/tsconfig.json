@@ -9,9 +9,7 @@
     "strict": true,
     "skipLibCheck": true,
     "allowImportingTsExtensions": true,
-    "noEmit": true,
-    "paths": {
-      "$amplify/*": ["../.amplify/generated/*"]
-    }
-  }
+    "noEmit": true
+  },
+  "include": ["**/*.ts", "../core/**/*.ts"]
 }

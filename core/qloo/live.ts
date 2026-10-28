@@ -1,7 +1,7 @@
 // Live Qloo source: runs harness workflows in-process via
 // createDirectQlooWorkflowExecutorFromEnvironment, which reads QLOO_API_KEY
 // (plus QLOO_BASE_URL / QLOO_TRUSTED_BASE_URL for the hackathon gateway).
-// The key only ever lives in the Lambda environment (Amplify secret).
+// The key only ever lives in the worker Lambda (read from SSM at cold start).
 
 import { createDirectQlooWorkflowExecutorFromEnvironment } from "@qloo/qloo-harness";
 import { type GeoPlace, addressHas, geocode } from "../geo.ts";

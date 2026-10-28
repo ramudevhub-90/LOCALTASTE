@@ -1,0 +1,7 @@
+{
+  "app": "npx tsx infra/app.ts",
+  "output": "infra/cdk.out",
+  "context": {
+    "bedrockRoleArn": "arn:aws:iam::975138397215:role/localtaste-bedrock-invoke"
+  }
+}
